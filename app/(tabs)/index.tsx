@@ -7,7 +7,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { chain, client } from "@/constants/thirdweb";
 import { useEffect, useState } from "react";
 import { createAuth } from "thirdweb/auth";
-import { baseSepolia, ethereum } from "thirdweb/chains";
+import { baseSepolia, ethereum, polygon, sepolia } from "thirdweb/chains";
 import {
 	ConnectButton,
 	ConnectEmbed,
@@ -40,7 +40,7 @@ const wallets = [
 			passkeyDomain: "thirdweb.com",
 		},
 		smartAccount: {
-			chain: baseSepolia,
+			chain: sepolia,
 			sponsorGas: true,
 		},
 	}),
@@ -95,9 +95,9 @@ export default function HomeScreen() {
 			</View>
 			<ConnectButton
 				client={client}
-				theme={theme || "dark"}
+				theme={theme || "light"}
 				wallets={wallets}
-				chain={baseSepolia}
+				chains={[sepolia, baseSepolia, polygon]}
 			/>
 			<View style={{ gap: 2 }}>
 				<ThemedText type="subtitle">{`Themed <ConnectButton />`}</ThemedText>
@@ -147,7 +147,7 @@ export default function HomeScreen() {
 			<ConnectEmbed
 				client={client}
 				theme={theme || "dark"}
-				chain={ethereum}
+				chains={[sepolia, baseSepolia, polygon]}
 				wallets={wallets}
 				auth={{
 					async doLogin(params) {

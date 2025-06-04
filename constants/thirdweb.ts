@@ -1,5 +1,5 @@
 import { createThirdwebClient, getContract } from "thirdweb";
-import { base, baseSepolia } from "thirdweb/chains";
+import { base, baseSepolia, sepolia } from "thirdweb/chains";
 
 const clientId = process.env.EXPO_PUBLIC_THIRDWEB_CLIENT_ID!;
 

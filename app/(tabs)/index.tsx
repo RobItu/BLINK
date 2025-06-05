@@ -5,9 +5,9 @@ import { ThemedButton } from "@/components/ThemedButton";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { chain, client } from "@/constants/thirdweb";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createAuth } from "thirdweb/auth";
-import { baseSepolia, ethereum, polygon, sepolia } from "thirdweb/chains";
+import { avalanche, avalancheFuji, baseSepolia, ethereum, polygon, sepolia } from "thirdweb/chains";
 import {
 	ConnectButton,
 	ConnectEmbed,
@@ -30,41 +30,6 @@ const customTheme = lightTheme({
    modalBg: 'red'
  }});
 
-const wallets = [
-	inAppWallet({
-		auth: {
-			options: [
-				"google",
-				"facebook",
-				"discord",
-				"telegram",
-				"email",
-				"phone",
-				"passkey",
-			],
-			passkeyDomain: "thirdweb.com",
-		},
-		smartAccount: {
-			chain: sepolia,
-			sponsorGas: true,
-		},
-	}),
-	createWallet("io.metamask"),
-	createWallet("com.coinbase.wallet", {
-		appMetadata: {
-			name: "Thirdweb RN Demo",
-		},
-		mobileConfig: {
-			callbackURL: "com.thirdweb.demo://",
-		},
-		walletConfig: {
-			options: "smartWalletOnly",
-		},
-	}),
-	createWallet("me.rainbow"),
-	createWallet("com.trustwallet.app"),
-	createWallet("io.zerion.wallet"),
-];
 
 const thirdwebAuth = createAuth({
 	domain: "localhost:3000",
@@ -75,6 +40,52 @@ const thirdwebAuth = createAuth({
 let isLoggedIn = false;
 
 export default function HomeScreen() {
+	const [selectedChain, setSelectedChain] = useState(avalancheFuji);
+    
+    // Chain options for the picker
+    const chainOptions = [
+        { value: avalancheFuji, label: "Avalanche Fuji", id: "avalancheFuji" },
+        { value: sepolia, label: "Sepolia", id: "sepolia" },
+        { value: baseSepolia, label: "Base Sepolia", id: "baseSepolia" },
+        { value: polygon, label: "Polygon", id: "polygon" },
+        { value: ethereum, label: "Ethereum", id: "ethereum" },
+    ];
+
+	const wallets = useMemo(() => [
+		inAppWallet({
+			auth: {
+				options: [
+					"google",
+					"facebook",
+					"discord",
+					"telegram",
+					"email",
+					"phone",
+					"passkey",
+				],
+				passkeyDomain: "thirdweb.com",
+			},
+			smartAccount: {
+				chain: selectedChain, // Now dynamic!
+				sponsorGas: true,
+			},
+		}),
+		createWallet("io.metamask"),
+		createWallet("com.coinbase.wallet", {
+			appMetadata: {
+				name: "Thirdweb RN Demo",
+			},
+			mobileConfig: {
+				callbackURL: "com.thirdweb.demo://",
+			},
+			walletConfig: {
+				options: "smartWalletOnly",
+			},
+		}),
+		createWallet("me.rainbow"),
+		createWallet("com.trustwallet.app"),
+		createWallet("io.zerion.wallet"),
+	], [selectedChain]); // Recreate wallets when chain changes
 	const account = useActiveAccount();
 	const theme = useColorScheme();
 	return (
@@ -98,11 +109,34 @@ export default function HomeScreen() {
 					enabled.
 				</ThemedText>
 			</View>
+			<View style={{ gap: 8, marginVertical: 16 }}>
+    <ThemedText type="subtitle">Select Network</ThemedText>
+    <View style={{ 
+        flexDirection: 'row', 
+        flexWrap: 'wrap', 
+        gap: 8,
+        paddingVertical: 8 
+    }}>
+        {chainOptions.map((chain) => (
+            <ThemedButton
+                key={chain.id}
+                title={chain.label}
+                variant={selectedChain.id === chain.value.id ? "primary" : "secondary"}
+                onPress={() => setSelectedChain(chain.value)}
+                
+            />
+        ))}
+    </View>
+    <ThemedText type="subtext">
+        Current Smart Account Chain: {chainOptions.find(c => c.value.id === selectedChain.id)?.label}
+    </ThemedText>
+</View>
 			<ConnectButton
 				client={client}
 				theme={theme || "light"}
 				wallets={wallets}
-				chains={[sepolia, baseSepolia, polygon]}
+				chain={selectedChain} // Use selected chain as default
+    		chains={[sepolia, baseSepolia, polygon, avalancheFuji, ethereum]}
 			/>
 			<View style={{ gap: 2 }}>
 				<ThemedText type="subtitle">{`Themed <ConnectButton />`}</ThemedText>

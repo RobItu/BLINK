@@ -25,6 +25,11 @@ import {
 	inAppWallet,
 } from "thirdweb/wallets/in-app";
 
+const customTheme = lightTheme({
+ colors: {
+   modalBg: 'red'
+ }});
+
 const wallets = [
 	inAppWallet({
 		auth: {

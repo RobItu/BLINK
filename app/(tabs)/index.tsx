@@ -41,6 +41,55 @@ let isLoggedIn = false;
 
 export default function HomeScreen() {
 	const [selectedChain, setSelectedChain] = useState(avalancheFuji);
+	const activeWallet = useActiveWallet();
+    const { disconnect } = useDisconnect();
+    const { connect } = useConnect();
+	const handleChainChange = async (newChain:any) => {
+        const wasConnected = !!activeWallet;
+        const currentWalletId = activeWallet?.id;
+        
+        if (wasConnected) {
+            // Store connection info
+            const connectionInfo = {
+                walletId: currentWalletId,
+                // Store any other relevant connection data
+            };
+            
+            // Disconnect current wallet
+            await disconnect(activeWallet);
+            
+            // Update chain
+            setSelectedChain(newChain);
+            
+            // Auto-reconnect with new chain (small delay to ensure state updates)
+            setTimeout(async () => {
+                if (connectionInfo.walletId === "inApp") {
+                    // Reconnect inApp wallet with new chain
+                    connect(async () => {
+                        const w = inAppWallet({
+                            auth: {
+                                options: [
+                                    "google", "facebook", "discord", 
+                                    "telegram", "email", "phone", "passkey"
+                                ],
+                                passkeyDomain: "thirdweb.com",
+                            },
+                            smartAccount: {
+                                chain: newChain,
+                                sponsorGas: true,
+                            },
+                        });
+                        // This should auto-connect to the previously used method
+                        await w.autoConnect({ client });
+                        return w;
+                    });
+                }
+            }, 100);
+        } else {
+            // Just update chain if not connected
+            setSelectedChain(newChain);
+        }
+    };
     
     // Chain options for the picker
     const chainOptions = [
@@ -122,7 +171,7 @@ export default function HomeScreen() {
                 key={chain.id}
                 title={chain.label}
                 variant={selectedChain.id === chain.value.id ? "primary" : "secondary"}
-                onPress={() => setSelectedChain(chain.value)}
+                onPress={() => handleChainChange(chain.value)}
                 
             />
         ))}

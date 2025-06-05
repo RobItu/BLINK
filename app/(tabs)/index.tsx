@@ -56,7 +56,7 @@ export default function HomeScreen() {
             };
             
             // Disconnect current wallet
-            await disconnect(activeWallet);
+            // await disconnect(activeWallet);
             
             // Update chain
             setSelectedChain(newChain);

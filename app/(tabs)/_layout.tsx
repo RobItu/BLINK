@@ -4,6 +4,7 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import { Tabs } from "expo-router";
 import React from "react";
 
+
 export default function TabLayout() {
 	const colorScheme = useColorScheme();
 
@@ -26,6 +27,30 @@ export default function TabLayout() {
 					),
 				}}
 			/>
+			<Tabs.Screen
+    name="generate-qr"
+    options={{
+        title: "Generate QR",
+        tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon
+                name={focused ? "qr-code" : "qr-code-outline"}
+                color={color}
+            />
+        ),
+    }}
+/>
+<Tabs.Screen
+    name="scan-qr"
+    options={{
+        title: "Scan QR",
+        tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon
+                name={focused ? "scan" : "scan-outline"}
+                color={color}
+            />
+        ),
+    }}
+/>
 			<Tabs.Screen
 				name="read"
 				options={{

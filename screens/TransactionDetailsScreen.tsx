@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useNavigation, RouteProp } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 interface TransactionData {
   for: string;
@@ -10,26 +10,37 @@ interface TransactionData {
   id: string;
 }
 
-type RootStackParamList = {
-  TransactionDetails: { transactionData: TransactionData };
-};
-
-type TransactionDetailsRouteProp = RouteProp<RootStackParamList, 'TransactionDetails'>;
-
-interface TransactionDetailsScreenProps {
-  route: TransactionDetailsRouteProp;
-}
-
-export const TransactionDetailsScreen: React.FC<TransactionDetailsScreenProps> = ({ route }) => {
-  const { transactionData } = route.params;
-  const navigation = useNavigation();
+export default function TransactionDetailsScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // DEBUG: Log what params we received
+  console.log('Received params:', params);
+  
+  // Parse the transaction data from params
+  let transactionData: TransactionData;
+  
+  try {
+    transactionData = JSON.parse(params.transactionData as string);
+    console.log('Parsed transaction data:', transactionData);
+  } catch (error) {
+    console.log('Error parsing transaction data:', error);
+    
+    // Fallback with default data if parsing fails
+    transactionData = {
+      for: 'Unknown Item',
+      amount: '0.00',
+      currency: 'USD',
+      timestamp: Date.now(),
+      id: 'error'
+    };
+  }
   
   const handleConfirmPayment = () => {
-    // Implement your payment logic here
     Alert.alert(
       'Payment Confirmed',
       `Payment of ${transactionData.amount} ${transactionData.currency} for ${transactionData.for} has been processed.`,
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
+      [{ text: 'OK', onPress: () => router.back() }]
     );
   };
   
@@ -62,13 +73,13 @@ export const TransactionDetailsScreen: React.FC<TransactionDetailsScreenProps> =
       
       <TouchableOpacity 
         style={styles.cancelButton} 
-        onPress={() => navigation.goBack()}
+        onPress={() => router.back()}
       >
         <Text style={styles.cancelButtonText}>Cancel</Text>
       </TouchableOpacity>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {

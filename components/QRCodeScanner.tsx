@@ -44,24 +44,26 @@ export const QRCodeScannerScreen = () => {
         // Try to parse as transaction data
         const transactionData: TransactionData = JSON.parse(result.data);
         
-        // Navigate to transaction details with the data
-        router.push({
-          pathname: '/transaction-details',
-          params: { transactionData: JSON.stringify(transactionData) }
-        });
+        // Check if it has the required transaction fields
+        if (transactionData.for && transactionData.amount && transactionData.currency) {
+          // Navigate to transaction details
+          router.push({
+            pathname: '/transaction-details',
+            params: { transactionData: JSON.stringify(transactionData) }
+          });
+          return;
+        }
       } catch (error) {
-        // If it's not valid transaction data, show an error
-        Alert.alert(
-          'Invalid QR Code', 
-          'This QR code does not contain valid transaction data.',
-          [
-            {
-              text: 'OK',
-              onPress: () => setScanned(false),
-            },
-          ]
-        );
+        // Not valid transaction data
       }
+      
+      // Fallback: show the raw QR data
+      Alert.alert('QR Code Scanned', result.data, [
+        {
+          text: 'OK',
+          onPress: () => setScanned(false),
+        },
+      ]);
     }
   }
 

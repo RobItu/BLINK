@@ -1,9 +1,9 @@
 import { Image, StyleSheet, View, useColorScheme } from "react-native";
-
 import { ParallaxScrollView } from "@/components/ParallaxScrollView";
 import { ThemedButton } from "@/components/ThemedButton";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { QRCodeGenerator } from "@/components/QRCodeGenerator"; // Import your QR component
 import { chain, client } from "@/constants/thirdweb";
 import { useEffect, useState, useMemo } from "react";
 import { createAuth } from "thirdweb/auth";
@@ -30,7 +30,6 @@ const customTheme = lightTheme({
    modalBg: 'red'
  }});
 
-
 const thirdwebAuth = createAuth({
 	domain: "localhost:3000",
 	client,
@@ -41,9 +40,12 @@ let isLoggedIn = false;
 
 export default function HomeScreen() {
 	const [selectedChain, setSelectedChain] = useState(avalancheFuji);
+	const [showQRGenerator, setShowQRGenerator] = useState(false);
 	const activeWallet = useActiveWallet();
+	const account = useActiveAccount(); // This gives you the wallet address!
     const { disconnect } = useDisconnect();
     const { connect } = useConnect();
+	
 	const handleChainChange = async (newChain:any) => {
         const wasConnected = !!activeWallet;
         const currentWalletId = activeWallet?.id;
@@ -135,8 +137,9 @@ export default function HomeScreen() {
 		createWallet("com.trustwallet.app"),
 		createWallet("io.zerion.wallet"),
 	], [selectedChain]); // Recreate wallets when chain changes
-	const account = useActiveAccount();
+	
 	const theme = useColorScheme();
+	
 	return (
 		<ParallaxScrollView
 			headerBackgroundColor={{ light: "#A1CEDC", dark: "#1D3D47" }}
@@ -148,128 +151,74 @@ export default function HomeScreen() {
 			}
 		>
 			<ThemedView style={styles.titleContainer}>
-				<ThemedText type="title">Connecting Wallets</ThemedText>
+				<ThemedText type="title">Crypto Payment System</ThemedText>
 			</ThemedView>
-			<View style={{ gap: 2 }}>
-				<ThemedText type="subtitle">{`<ConnectButton />`}</ThemedText>
-				<ThemedText type="subtext">
-					Configurable button + modal, handles both connection and connected
-					state. Example below has Smart Accounts + sponsored transactions
-					enabled.
-				</ThemedText>
+			
+			{/* Toggle between wallet connection and QR generator */}
+			<View style={styles.navigationContainer}>
+				<ThemedButton
+					title="Wallet Connection"
+					variant={!showQRGenerator ? "primary" : "secondary"}
+					onPress={() => setShowQRGenerator(false)}
+				/>
+				<ThemedButton
+					title="Generate QR Code"
+					variant={showQRGenerator ? "primary" : "secondary"}
+					onPress={() => setShowQRGenerator(true)}
+				/>
 			</View>
-			<View style={{ gap: 8, marginVertical: 16 }}>
-    <ThemedText type="subtitle">Select Network</ThemedText>
-    <View style={{ 
-        flexDirection: 'row', 
-        flexWrap: 'wrap', 
-        gap: 8,
-        paddingVertical: 8 
-    }}>
-        {chainOptions.map((chain) => (
-            <ThemedButton
-                key={chain.id}
-                title={chain.label}
-                variant={selectedChain.id === chain.value.id ? "primary" : "secondary"}
-                onPress={() => handleChainChange(chain.value)}
-                
-            />
-        ))}
-    </View>
-    <ThemedText type="subtext">
-        Current Smart Account Chain: {chainOptions.find(c => c.value.id === selectedChain.id)?.label}
-    </ThemedText>
-</View>
-			<ConnectButton
-				client={client}
-				theme={theme || "light"}
-				wallets={wallets}
-				chain={selectedChain} // Use selected chain as default
-    		chains={[sepolia, baseSepolia, polygon, avalancheFuji, ethereum]}
-			/>
-			<View style={{ gap: 2 }}>
-				<ThemedText type="subtitle">{`Themed <ConnectButton />`}</ThemedText>
-				<ThemedText type="subtext">
-					Styled the Connect Button to match your app.
-				</ThemedText>
-			</View>
-			<ConnectButton
-				client={client}
-				theme={lightTheme({
-					colors: {
-						primaryButtonBg: "#1e8449",
-						modalBg: "#1e8449",
-						borderColor: "#196f3d",
-						accentButtonBg: "#196f3d",
-						primaryText: "#ffffff",
-						secondaryIconColor: "#a7b8b9",
-						secondaryText: "#a7b8b9",
-						secondaryButtonBg: "#196f3d",
-					},
-				})}
-				wallets={[
-					createWallet("io.metamask"),
-					createWallet("com.coinbase.wallet"),
-					createWallet("me.rainbow"),
-					createWallet("com.trustwallet.app"),
-					createWallet("io.zerion.wallet"),
-					createWallet("xyz.argent"),
-					createWallet("com.okex.wallet"),
-					createWallet("com.zengo"),
-				]}
-				connectButton={{
-					label: "Sign in to ✨ MyApp",
-				}}
-				connectModal={{
-					title: "✨ MyApp Login",
-				}}
-			/>
-			<View style={{ height: 16 }} />
-			<View style={{ gap: 2 }}>
-				<ThemedText type="subtitle">{`<ConnectEmbed />`}</ThemedText>
-				<ThemedText type="subtext">
-					Embeddable connection component in any screen. Example below is
-					configured with a specific list of EOAs + SIWE.
-				</ThemedText>
-			</View>
-			<ConnectEmbed
-				client={client}
-				theme={theme || "dark"}
-				chains={[sepolia, baseSepolia, polygon]}
-				wallets={wallets}
-				auth={{
-					async doLogin(params) {
-						// fake delay
-						await new Promise((resolve) => setTimeout(resolve, 2000));
-						const verifiedPayload = await thirdwebAuth.verifyPayload(params);
-						isLoggedIn = verifiedPayload.valid;
-					},
-					async doLogout() {
-						isLoggedIn = false;
-					},
-					async getLoginPayload(params) {
-						return thirdwebAuth.generatePayload(params);
-					},
-					async isLoggedIn(address) {
-						return isLoggedIn;
-					},
-				}}
-			/>
-			{account && (
-				<ThemedText type="subtext">
-					ConnectEmbed does not render when connected, use the `onConnect` prop
-					to navigate to a new screen instead.
-				</ThemedText>
+			
+			{!showQRGenerator ? (
+				// Wallet Connection Screen
+				<>
+					<View style={{ gap: 2 }}>
+						<ThemedText type="subtitle">{`<ConnectButton />`}</ThemedText>
+						<ThemedText type="subtext">
+							Configurable button + modal, handles both connection and connected
+							state. Example below has Smart Accounts + sponsored transactions
+							enabled.
+						</ThemedText>
+					</View>
+					
+					<View style={{ gap: 8, marginVertical: 16 }}>
+						<ThemedText type="subtitle">Select Network</ThemedText>
+						<View style={{ 
+							flexDirection: 'row', 
+							flexWrap: 'wrap', 
+							gap: 8,
+							paddingVertical: 8 
+						}}>
+							{chainOptions.map((chain) => (
+								<ThemedButton
+									key={chain.id}
+									title={chain.label}
+									variant={selectedChain.id === chain.value.id ? "primary" : "secondary"}
+									onPress={() => handleChainChange(chain.value)}
+								/>
+							))}
+						</View>
+						<ThemedText type="subtext">
+							Current Smart Account Chain: {chainOptions.find(c => c.value.id === selectedChain.id)?.label}
+						</ThemedText>
+					</View>
+					
+					<ConnectButton
+						client={client}
+						theme={theme || "light"}
+						wallets={wallets}
+						chain={selectedChain} // Use selected chain as default
+						chains={[sepolia, baseSepolia, polygon, avalancheFuji, ethereum]}
+					/>
+					
+					<CustomConnectUI />
+				</>
+			) : (
+				// QR Code Generator Screen - Pass wallet data as props
+				<QRCodeGenerator 
+					connectedWalletAddress={account?.address}
+					isWalletConnected={!!account}
+				/>
 			)}
-			<View style={{ height: 16 }} />
-			<View style={{ gap: 2 }}>
-				<ThemedText type="subtitle">{`useConnect()`}</ThemedText>
-				<ThemedText type="subtext">
-					Hooks to build your own UI. Example below connects to a smart Google
-					account or metamask EOA.
-				</ThemedText>
-			</View>
-			<CustomConnectUI />
 		</ParallaxScrollView>
 	);
 }
@@ -379,6 +328,12 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 8,
+	},
+	navigationContainer: {
+		flexDirection: 'row',
+		gap: 10,
+		marginVertical: 20,
+		justifyContent: 'center',
 	},
 	stepContainer: {
 		gap: 8,

@@ -1,37 +1,130 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import { createTransaction, CurrencyType, TransactionData } from '../types/transaction';
 
-type CurrencyType = 'USDC' | 'USD';
+interface QRCodeGeneratorProps {
+  connectedWalletAddress?: string;
+  isWalletConnected?: boolean;
+}
 
-interface TransactionData {
+// Minimal transaction data for QR code
+interface MinimalTransactionData {
+  id: string;
   for: string;
   amount: string;
   currency: CurrencyType;
-  timestamp: number;
-  id: string;
+  seller: string;
+  sellerName?: string;
+  expires: number;
 }
 
-export const QRCodeGenerator: React.FC = () => {
+export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ 
+  connectedWalletAddress,
+  isWalletConnected = false 
+}) => {
   const [currencyType, setCurrencyType] = useState<CurrencyType>('USDC');
   const [amount, setAmount] = useState<string>('5.00');
   const [itemName, setItemName] = useState<string>('lemonade');
+  const [sellerWalletAddress, setSellerWalletAddress] = useState<string>('');
+  const [sellerName, setSellerName] = useState<string>('');
+  const [qrSize, setQrSize] = useState<number>(200);
   
-  // Create the transaction data object
-  const transactionData: TransactionData = {
+  // Auto-populate seller wallet address when wallet connects
+  useEffect(() => {
+    if (connectedWalletAddress && !sellerWalletAddress) {
+      setSellerWalletAddress(connectedWalletAddress);
+    }
+  }, [connectedWalletAddress]);
+  
+  // Create the full transaction data object (for storage/backend)
+  const fullTransactionData: TransactionData = createTransaction(
+    itemName,
+    amount,
+    currencyType,
+    sellerWalletAddress || 'Not Connected',
+    sellerName || undefined
+  );
+  
+  // Create minimal data for QR code
+  const minimalData: MinimalTransactionData = {
+    id: fullTransactionData.id,
     for: itemName,
     amount: amount,
     currency: currencyType,
-    timestamp: Date.now(),
-    id: `txn_${Date.now()}` // unique transaction ID
+    seller: sellerWalletAddress || 'Not Connected',
+    sellerName: sellerName || undefined,
+    expires: fullTransactionData.expiresAt || 0
   };
   
-  // Convert to JSON string for QR code
-  const qrData = JSON.stringify(transactionData);
+  // Even more compact: just essential info
+  const compactData = {
+    id: fullTransactionData.id,
+    item: itemName,
+    amt: amount,
+    cur: currencyType,
+    to: sellerWalletAddress || 'Not Connected',
+    exp: Math.floor((fullTransactionData.expiresAt || 0) / 1000) // Unix timestamp in seconds
+  };
+  
+  // Convert to JSON string for QR code (using compact version)
+  const qrData = JSON.stringify(compactData);
+  
+  const handleUseConnectedWallet = () => {
+    if (connectedWalletAddress) {
+      setSellerWalletAddress(connectedWalletAddress);
+    }
+  };
+  
+  // // Calculate QR data size
+  // const dataSize = new Blob([qrData]).size;
+  // const isDataTooLarge = dataSize > 1000; // Warn if over 1KB
   
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Generate Payment QR Code</Text>
+      
+      {/* QR Size Controller */}
+      <View style={styles.qrSizeContainer}>
+        <Text style={styles.inputLabel}>QR Code Size</Text>
+        <View style={styles.sizeButtons}>
+          {[150, 200, 250, 300].map(size => (
+            <TouchableOpacity
+              key={size}
+              style={[
+                styles.sizeButton,
+                qrSize === size && styles.selectedSizeButton
+              ]}
+              onPress={() => setQrSize(size)}
+            >
+              <Text style={[
+                styles.sizeButtonText,
+                qrSize === size && styles.selectedSizeButtonText
+              ]}>
+                {size}px
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      
+      
+      {/* Wallet Connection Status */}
+      <View style={styles.walletStatusContainer}>
+        {isWalletConnected ? (
+          <View style={styles.connectedStatus}>
+            <Text style={styles.connectedText}>✅ Wallet Connected</Text>
+            <Text style={styles.walletAddressText}>
+              {connectedWalletAddress?.slice(0, 6)}...{connectedWalletAddress?.slice(-4)}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.disconnectedStatus}>
+            <Text style={styles.disconnectedText}>❌ No Wallet Connected</Text>
+            <Text style={styles.statusSubtext}>Connect a wallet to auto-fill seller address</Text>
+          </View>
+        )}
+      </View>
       
       <View style={styles.formContainer}>
         <View style={styles.inputGroup}>
@@ -42,7 +135,9 @@ export const QRCodeGenerator: React.FC = () => {
             onChangeText={setItemName}
             placeholder="e.g. Lemonade, Coffee, Haircut"
             placeholderTextColor="#999"
+            maxLength={30} // Limit length for QR efficiency
           />
+          <Text style={styles.characterCount}>{itemName.length}/30</Text>
         </View>
         
         <View style={styles.inputGroup}>
@@ -55,6 +150,40 @@ export const QRCodeGenerator: React.FC = () => {
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
           />
+        </View>
+        
+        <View style={styles.inputGroup}>
+          <View style={styles.labelContainer}>
+            <Text style={styles.inputLabel}>Seller Wallet Address</Text>
+            {isWalletConnected && sellerWalletAddress !== connectedWalletAddress && (
+              <TouchableOpacity onPress={handleUseConnectedWallet}>
+                <Text style={styles.autofillLink}>Use connected wallet</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <TextInput
+            style={[
+              styles.textInput,
+              sellerWalletAddress === connectedWalletAddress && styles.connectedInput
+            ]}
+            value={sellerWalletAddress}
+            onChangeText={setSellerWalletAddress}
+            placeholder="0x..."
+            placeholderTextColor="#999"
+          />
+        </View>
+        
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Seller Name (Optional)</Text>
+          <TextInput
+            style={styles.textInput}
+            value={sellerName}
+            onChangeText={setSellerName}
+            placeholder="Your business name"
+            placeholderTextColor="#999"
+            maxLength={20} // Limit length for QR efficiency
+          />
+          <Text style={styles.characterCount}>{sellerName.length}/20</Text>
         </View>
         
         <View style={styles.inputGroup}>
@@ -85,12 +214,22 @@ export const QRCodeGenerator: React.FC = () => {
         <Text style={styles.previewTitle}>Preview</Text>
         <Text style={styles.previewText}>For: {itemName}</Text>
         <Text style={styles.previewText}>Amount: {amount} {currencyType}</Text>
+        <Text style={styles.previewText}>
+          Seller: {sellerWalletAddress ? 
+            `${sellerWalletAddress.slice(0, 6)}...${sellerWalletAddress.slice(-4)}` : 
+            'Not set'
+          }
+        </Text>
+        {sellerName && <Text style={styles.previewText}>Business: {sellerName}</Text>}
+        {/* <Text style={styles.previewTextSmall}>
+          QR Data Size: {dataSize} bytes
+        </Text> */}
       </View>
       
       <View style={styles.qrContainer}>
         <QRCode
           value={qrData}
-          size={200}
+          size={qrSize}
           color="black"
           backgroundColor="white"
         />
@@ -115,21 +254,132 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 30,
+    marginBottom: 20,
     color: '#333',
+  },
+  qrSizeContainer: {
+    width: '100%',
+    marginBottom: 15,
+  },
+  sizeButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
+  },
+  sizeButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  selectedSizeButton: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  sizeButtonText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  selectedSizeButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  warningContainer: {
+    backgroundColor: '#fff3cd',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+    width: '100%',
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  walletStatusContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  connectedStatus: {
+    backgroundColor: '#e8f5e8',
+    padding: 15,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#4caf50',
+    alignItems: 'center',
+  },
+  disconnectedStatus: {
+    backgroundColor: '#ffeaea',
+    padding: 15,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#f44336',
+    alignItems: 'center',
+  },
+  connectedText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2e7d32',
+    marginBottom: 5,
+  },
+  disconnectedText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#c62828',
+    marginBottom: 5,
+  },
+  walletAddressText: {
+    fontSize: 14,
+    color: '#555',
+    fontFamily: 'monospace',
+    marginBottom: 10,
+  },
+  statusSubtext: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  useWalletButton: {
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  useWalletButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   formContainer: {
     width: '100%',
     marginBottom: 20,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 15,
+  },
+  labelContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   inputLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  autofillLink: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
   },
   textInput: {
     borderWidth: 1,
@@ -140,6 +390,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#f9f9f9',
     color: '#333',
+  },
+  connectedInput: {
+    borderColor: '#4caf50',
+    backgroundColor: '#f8fff8',
   },
   previewContainer: {
     backgroundColor: '#f5f5f5',
@@ -158,6 +412,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 5,
     color: '#666',
+  },
+  previewTextSmall: {
+    fontSize: 12,
+    color: '#888',
+    fontStyle: 'italic',
+    marginTop: 5,
   },
   currencySelector: {
     flexDirection: 'row',
@@ -195,6 +455,25 @@ const styles = StyleSheet.create({
     elevation: 5,
     marginBottom: 20,
     alignItems: 'center',
+  },
+  technicalDetails: {
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+    width: '100%',
+  },
+  technicalTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  technicalText: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'monospace',
+    lineHeight: 16,
   },
   instructionText: {
     textAlign: 'center',

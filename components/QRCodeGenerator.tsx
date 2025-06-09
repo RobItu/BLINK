@@ -8,16 +8,6 @@ interface QRCodeGeneratorProps {
   isWalletConnected?: boolean;
 }
 
-// Minimal transaction data for QR code
-interface MinimalTransactionData {
-  id: string;
-  for: string;
-  amount: string;
-  currency: CurrencyType;
-  seller: string;
-  sellerName?: string;
-  expires: number;
-}
 
 export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ 
   connectedWalletAddress,
@@ -27,7 +17,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [amount, setAmount] = useState<string>('5.00');
   const [itemName, setItemName] = useState<string>('lemonade');
   const [sellerWalletAddress, setSellerWalletAddress] = useState<string>('');
-  const [sellerName, setSellerName] = useState<string>('');
+  const [memo, setmemo] = useState<string>('');
   const [qrSize, setQrSize] = useState<number>(200);
   
   // Auto-populate seller wallet address when wallet connects
@@ -43,28 +33,19 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
     amount,
     currencyType,
     sellerWalletAddress || 'Not Connected',
-    sellerName || undefined
+    memo || undefined
   );
   
-  // Create minimal data for QR code
-  const minimalData: MinimalTransactionData = {
-    id: fullTransactionData.id,
-    for: itemName,
-    amount: amount,
-    currency: currencyType,
-    seller: sellerWalletAddress || 'Not Connected',
-    sellerName: sellerName || undefined,
-    expires: fullTransactionData.expiresAt || 0
-  };
   
   // Even more compact: just essential info
   const compactData = {
+    for: itemName,
+    amount: amount,
+    currency: currencyType,
+    timestamp: Date.now(),
     id: fullTransactionData.id,
-    item: itemName,
-    amt: amount,
-    cur: currencyType,
-    to: sellerWalletAddress || 'Not Connected',
-    exp: Math.floor((fullTransactionData.expiresAt || 0) / 1000) // Unix timestamp in seconds
+    sellerWalletAddress: sellerWalletAddress || 'Not Connected',
+    memo: memo || undefined
   };
   
   // Convert to JSON string for QR code (using compact version)
@@ -84,7 +65,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Generate Payment QR Code</Text>
       
-      {/* QR Size Controller */}
+      {/* QR Size Controller
       <View style={styles.qrSizeContainer}>
         <Text style={styles.inputLabel}>QR Code Size</Text>
         <View style={styles.sizeButtons}>
@@ -106,7 +87,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </View> */}
       
       
       {/* Wallet Connection Status */}
@@ -174,16 +155,16 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
         </View>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Seller Name (Optional)</Text>
+          <Text style={styles.inputLabel}>Memo (Optional)</Text>
           <TextInput
             style={styles.textInput}
-            value={sellerName}
-            onChangeText={setSellerName}
-            placeholder="Your business name"
+            value={memo}
+            onChangeText={setmemo}
+            placeholder="Add a note or memo"
             placeholderTextColor="#999"
             maxLength={20} // Limit length for QR efficiency
           />
-          <Text style={styles.characterCount}>{sellerName.length}/20</Text>
+          <Text style={styles.characterCount}>{memo.length}/20</Text>
         </View>
         
         <View style={styles.inputGroup}>
@@ -220,7 +201,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
             'Not set'
           }
         </Text>
-        {sellerName && <Text style={styles.previewText}>Business: {sellerName}</Text>}
+        {memo && <Text style={styles.previewText}>Memo: {memo}</Text>}
         {/* <Text style={styles.previewTextSmall}>
           QR Data Size: {dataSize} bytes
         </Text> */}

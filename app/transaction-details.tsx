@@ -8,6 +8,8 @@ interface TransactionData {
   currency: string;
   timestamp: number;
   id: string;
+  sellerWalletAddress?: string; 
+  memo?: string;   
 }
 
 export default function TransactionDetailsScreen() {
@@ -30,9 +32,16 @@ export default function TransactionDetailsScreen() {
       <Text style={styles.title}>Transaction Details</Text>
       
       <View style={styles.detailsContainer}>
+        <Text style={styles.detailText}>ID: {transactionData.id}</Text>
+        <Text style={styles.detailText}>To: {transactionData.sellerWalletAddress}</Text>
         <Text style={styles.detailText}>For: {transactionData.for}</Text>
         <Text style={styles.detailText}>Amount: {transactionData.amount} {transactionData.currency}</Text>
-        <Text style={styles.detailText}>ID: {transactionData.id}</Text>
+        {transactionData.memo && (
+    <View style={styles.detailText}>
+      <Text style={styles.detailText}>Memo:{transactionData.memo}</Text>
+    </View>
+  )}
+        
       </View>
       
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPayment}>

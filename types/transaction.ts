@@ -19,26 +19,14 @@ export interface AcceptedNetwork {
 }
 
 export interface TransactionData {
-  // Basic transaction info
   for: string;
   amount: string;
-  currency: CurrencyType;
+  currency: string;
   timestamp: number;
   id: string;
-  
-  // Seller info
-  sellerWalletAddress: string;
-  sellerName?: string;
-  
-  // Payment options
-  acceptedNetworks: AcceptedNetwork[];
-  
-  // Optional metadata
-  description?: string;
-  expiresAt?: number; // Unix timestamp
-  requiresConfirmation?: boolean;
+  sellerWalletAddress?: string; 
+  memo?: string;   
 }
-
 // Predefined network configurations
 export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
   {
@@ -146,7 +134,7 @@ export const createTransaction = (
   amount: string,
   currency: CurrencyType,
   sellerWalletAddress: string,
-  sellerName?: string
+  memo?: string
 ): TransactionData => {
   return {
     for: itemName,
@@ -155,9 +143,6 @@ export const createTransaction = (
     timestamp: Date.now(),
     id: `txn_${Date.now()}`,
     sellerWalletAddress,
-    sellerName,
-    acceptedNetworks: getDefaultAcceptedNetworks(),
-    expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours from now
-    requiresConfirmation: true
+    memo: memo || '',
   };
 };

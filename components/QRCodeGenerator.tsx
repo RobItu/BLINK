@@ -1,12 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { createTransaction, CurrencyType, TransactionData } from '../types/transaction';
+import { SUPPORTED_NETWORKS } from '../types/transaction';
 
 interface QRCodeGeneratorProps {
   connectedWalletAddress?: string;
   isWalletConnected?: boolean;
 }
+
+const getNetworkIcon = (networkName: string) => {
+  const iconMap: { [key: string]: any } = {
+    'Sepolia': require('../assets/images/networks/sepolia.png'),
+    'Polygon': require('../assets/images/networks/polygon.png'),
+    'Avalanche Fuji': require('../assets/images/networks/avalancheFuji.png'),
+    'Base Sepolia': require('../assets/images/networks/baseSepolia.png'),
+    'Arbitrum': require('../assets/images/networks/arbitrum.png'),
+    'Ethereum': require('../assets/images/networks/ethereum.png'),
+    'Avalanche': require('../assets/images/networks/avalancheFuji.png'),
+
+  };
+  return iconMap[networkName] || require('../assets/images/networks/sepolia.png');
+};
+
+// Simple network options from SUPPORTED_NETWORKS
+const NETWORK_OPTIONS = SUPPORTED_NETWORKS.map(network => ({
+  name: network.name,
+  symbol: network.nativeCurrency.symbol,
+  icon: getNetworkIcon(network.name) // Add this function
+}));
+
 
 
 export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ 
@@ -14,11 +37,13 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   isWalletConnected = false 
 }) => {
   const [currencyType, setCurrencyType] = useState<CurrencyType>('USDC');
-  const [amount, setAmount] = useState<string>('5.00');
-  const [itemName, setItemName] = useState<string>('lemonade');
+  const [amount, setAmount] = useState<string>('');
+  const [itemName, setItemName] = useState<string>('');
   const [sellerWalletAddress, setSellerWalletAddress] = useState<string>('');
   const [memo, setmemo] = useState<string>('');
   const [qrSize, setQrSize] = useState<number>(200);
+  const [desiredNetwork, setDesiredNetwork] = useState<string>('Ethereum'); // Default to first option
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   
   // Auto-populate seller wallet address when wallet connects
   useEffect(() => {
@@ -45,7 +70,8 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
     timestamp: Date.now(),
     id: fullTransactionData.id,
     sellerWalletAddress: sellerWalletAddress || 'Not Connected',
-    memo: memo || undefined
+    memo: memo || undefined,
+    network: desiredNetwork,
   };
   
   // Convert to JSON string for QR code (using compact version)
@@ -56,39 +82,17 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
       setSellerWalletAddress(connectedWalletAddress);
     }
   };
-  
-  // // Calculate QR data size
-  // const dataSize = new Blob([qrData]).size;
-  // const isDataTooLarge = dataSize > 1000; // Warn if over 1KB
+
+  const handleNetworkSelect = (networkName: string) => {
+    setDesiredNetwork(networkName);
+    setIsDropdownOpen(false);
+  };
+
+  const selectedNetwork = NETWORK_OPTIONS.find(option => option.name === desiredNetwork);
   
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Generate Payment QR Code</Text>
-      
-      {/* QR Size Controller
-      <View style={styles.qrSizeContainer}>
-        <Text style={styles.inputLabel}>QR Code Size</Text>
-        <View style={styles.sizeButtons}>
-          {[150, 200, 250, 300].map(size => (
-            <TouchableOpacity
-              key={size}
-              style={[
-                styles.sizeButton,
-                qrSize === size && styles.selectedSizeButton
-              ]}
-              onPress={() => setQrSize(size)}
-            >
-              <Text style={[
-                styles.sizeButtonText,
-                qrSize === size && styles.selectedSizeButtonText
-              ]}>
-                {size}px
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View> */}
-      
       
       {/* Wallet Connection Status */}
       <View style={styles.walletStatusContainer}>
@@ -108,6 +112,51 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
       </View>
       
       <View style={styles.formContainer}>
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>Destination Network</Text>
+          <View style={styles.dropdownContainer}>
+            <TouchableOpacity 
+        style={styles.dropdownButton}
+        onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+      >
+        <View style={styles.selectedContainer}>
+          {selectedNetwork && (
+            <Image source={selectedNetwork.icon} style={styles.networkIcon} />
+          )}
+          <Text style={styles.selectedText}>
+            {selectedNetwork ? selectedNetwork.name : 'Select Network'}
+          </Text>
+        </View>
+        <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {isDropdownOpen && (
+        <View style={styles.dropdown}>
+          {NETWORK_OPTIONS.map((option) => (
+            <TouchableOpacity
+              key={option.name}
+              style={[
+                styles.dropdownItem,
+                desiredNetwork === option.name && styles.selectedItem
+              ]}
+              onPress={() => handleNetworkSelect(option.name)}
+            >
+              <View style={styles.dropdownItemContainer}>
+                <Image source={option.icon} style={styles.networkIcon} />
+                <Text style={[
+                  styles.dropdownItemText,
+                  desiredNetwork === option.name && styles.selectedItemText
+                ]}>
+                  {option.name}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+          </View>
+        </View>
+
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Item/Service Name</Text>
           <TextInput
@@ -202,9 +251,6 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
           }
         </Text>
         {memo && <Text style={styles.previewText}>Memo: {memo}</Text>}
-        {/* <Text style={styles.previewTextSmall}>
-          QR Data Size: {dataSize} bytes
-        </Text> */}
       </View>
       
       <View style={styles.qrContainer}>
@@ -237,47 +283,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     color: '#333',
-  },
-  qrSizeContainer: {
-    width: '100%',
-    marginBottom: 15,
-  },
-  sizeButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 8,
-  },
-  sizeButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 15,
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  selectedSizeButton: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  sizeButtonText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  selectedSizeButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-  },
-  warningContainer: {
-    backgroundColor: '#fff3cd',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 15,
-    width: '100%',
-  },
-  warningText: {
-    color: '#856404',
-    fontSize: 14,
-    textAlign: 'center',
   },
   walletStatusContainer: {
     width: '100%',
@@ -322,17 +327,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
-  useWalletButton: {
-    backgroundColor: '#4caf50',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  useWalletButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
   formContainer: {
     width: '100%',
     marginBottom: 20,
@@ -350,6 +344,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    marginBottom: 8,
   },
   characterCount: {
     fontSize: 12,
@@ -376,6 +371,83 @@ const styles = StyleSheet.create({
     borderColor: '#4caf50',
     backgroundColor: '#f8fff8',
   },
+  // Dropdown styles
+  dropdownContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  dropdownButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    backgroundColor: '#f9f9f9',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  selectedText: {
+    fontSize: 16,
+    color: '#333',
+    marginRight: 8,
+  },
+  symbolText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  arrow: {
+    fontSize: 16,
+    color: '#666',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  dropdownItem: {
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedItem: {
+    backgroundColor: '#007AFF',
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  dropdownSymbolText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  selectedItemText: {
+    color: '#fff',
+  },
   previewContainer: {
     backgroundColor: '#f5f5f5',
     padding: 15,
@@ -393,12 +465,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 5,
     color: '#666',
-  },
-  previewTextSmall: {
-    fontSize: 12,
-    color: '#888',
-    fontStyle: 'italic',
-    marginTop: 5,
   },
   currencySelector: {
     flexDirection: 'row',
@@ -421,10 +487,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  selectedText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
+
   qrContainer: {
     padding: 20,
     backgroundColor: '#fff',
@@ -437,25 +500,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignItems: 'center',
   },
-  technicalDetails: {
-    backgroundColor: '#f8f9fa',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-    width: '100%',
-  },
-  technicalTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  technicalText: {
-    fontSize: 12,
-    color: '#666',
-    fontFamily: 'monospace',
-    lineHeight: 16,
-  },
   instructionText: {
     textAlign: 'center',
     color: '#666',
@@ -463,4 +507,15 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingBottom: 20,
   },
-});
+  networkIcon: {
+  width: 24,
+  height: 24,
+  borderRadius: 12,
+  marginRight: 10,
+},
+dropdownItemContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  flex: 1,
+},
+  });

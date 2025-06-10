@@ -10,7 +10,8 @@ interface TransactionData {
   timestamp: number;
   id: string;
   sellerWalletAddress?: string; 
-  sellerName?: string;   
+  sellerName?: string;
+  network?: string;   
 }
 
 export const QRCodeScannerScreen = () => {
@@ -47,7 +48,7 @@ export const QRCodeScannerScreen = () => {
         const transactionData: TransactionData = JSON.parse(result.data);
         
         // Check if it has the required transaction fields
-        if (transactionData.for && transactionData.amount && transactionData.currency && transactionData.id && transactionData.sellerWalletAddress) {
+        if (transactionData.for && transactionData.amount && transactionData.currency && transactionData.network && transactionData.sellerWalletAddress) {
           // Navigate to transaction details
           router.push({
             pathname: '/transaction-details',

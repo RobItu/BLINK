@@ -25,10 +25,47 @@ export interface TransactionData {
   timestamp: number;
   id: string;
   sellerWalletAddress?: string; 
-  memo?: string;   
+  memo?: string;
+  network?: string; // Network name for the transaction   
 }
 // Predefined network configurations
 export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
+  {
+    name: 'Sepolia',
+    chainId: 11155111,
+    nativeCurrency: {
+      symbol: 'ETH',
+      name: 'Ethereum',
+      network: 'sepolia',
+      decimals: 18,
+      coinGeckoId: 'ethereum'
+    },
+    tokens: []
+  },
+  {
+    name: 'Avalanche Fuji',
+    chainId: 43113,
+    nativeCurrency: {
+      symbol: 'AVAX',
+      name: 'Avalanche',
+      network: 'avalanche-fuji',
+      decimals: 18,
+      coinGeckoId: 'avalanche-2'
+    },
+    tokens: []
+  },
+  {
+    name: 'Base Sepolia',
+    chainId: 84532,
+    nativeCurrency: {
+      symbol: 'ETH',
+      name: 'Ethereum',
+      network: 'base-sepolia',
+      decimals: 18,
+      coinGeckoId: 'ethereum'
+    },
+    tokens: []
+  },
   {
     name: 'Ethereum',
     chainId: 1,

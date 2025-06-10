@@ -1,14 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { TransactionData } from '@/types/transaction';
 
-interface TransactionData {
-  for: string;
-  amount: string;
-  currency: string;
-  timestamp: number;
-  id: string;
-}
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
@@ -30,9 +24,17 @@ export default function TransactionDetailsScreen() {
       <Text style={styles.title}>Transaction Details</Text>
       
       <View style={styles.detailsContainer}>
+        <Text style={styles.detailText}>ID: {transactionData.id}</Text>
+        <Text style={styles.detailText}>Destination Network: {transactionData.network}</Text>
+        <Text style={styles.detailText}>To: {transactionData.sellerWalletAddress}</Text>
         <Text style={styles.detailText}>For: {transactionData.for}</Text>
         <Text style={styles.detailText}>Amount: {transactionData.amount} {transactionData.currency}</Text>
-        <Text style={styles.detailText}>ID: {transactionData.id}</Text>
+        {transactionData.memo && (
+    <View style={styles.detailText}>
+      <Text style={styles.detailText}>Memo:{transactionData.memo}</Text>
+    </View>
+  )}
+        
       </View>
       
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPayment}>

@@ -1,8 +1,47 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useActiveAccount } from "thirdweb/react";
+import { useActiveAccount, useWalletBalance, useSendTransaction } from "thirdweb/react";
+import { getContract, prepareTransaction } from "thirdweb";
+import { balanceOf, transfer } from "thirdweb/extensions/erc20";
+import { avalanche, avalancheFuji, baseSepolia, ethereum, polygon, sepolia, arbitrum } from "thirdweb/chains";
+import { toWei } from "thirdweb/utils";
+import { client } from "@/constants/thirdweb";
 import { TransactionData, SUPPORTED_NETWORKS } from '@/types/transaction';
+
+interface TokenBalance {
+  symbol: string;
+  name: string;
+  balance: string;
+  contractAddress?: string;
+  decimals: number;
+  usdPrice?: number;
+  usdValue?: string;
+}
+
+const getNetworkIcon = (networkName: string) => {
+  const iconMap: { [key: string]: any } = {
+    'Sepolia': require('../assets/images/networks/sepolia.png'),
+    'Polygon': require('../assets/images/networks/polygon.png'),
+    'Avalanche Fuji': require('../assets/images/networks/avalancheFuji.png'),
+    'Base Sepolia': require('../assets/images/networks/baseSepolia.png'),
+    'Arbitrum': require('../assets/images/networks/arbitrum.png'),
+    'Ethereum': require('../assets/images/networks/ethereum.png'),
+    'Avalanche': require('../assets/images/networks/avalancheFuji.png'),
+  };
+  return iconMap[networkName] || require('../assets/images/networks/sepolia.png');
+};
+
+// Helper function to get token icon (use network icon for native tokens)
+const getTokenIcon = (token: TokenBalance, networkName: string) => {
+  // For native tokens (ETH, AVAX, MATIC), use network icon
+  if (!token.contractAddress) {
+    return getNetworkIcon(networkName);
+  }
+  // For ERC20 tokens, you could add specific token icons here
+  // For now, use a default or network icon
+  return getNetworkIcon(networkName);
+};
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
@@ -14,37 +53,321 @@ export default function TransactionDetailsScreen() {
   const [selectedToken, setSelectedToken] = useState<string>('');
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState(false);
+  const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([]);
+  const [loadingBalances, setLoadingBalances] = useState(false);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [sendingTransaction, setSendingTransaction] = useState(false);
+  
+  const { mutate: sendTransaction } = useSendTransaction();
   
   // Parse the transaction data from params
   const transactionData: TransactionData = JSON.parse(params.transactionData as string);
   
-  // Get available tokens for selected network
+  // Map network names to actual chain objects
+  const getChainObject = (networkName: string) => {
+    const chainMap: { [key: string]: any } = {
+      'Ethereum': ethereum,
+      'Polygon': polygon,
+      'Avalanche': avalanche,
+      'Arbitrum': arbitrum,
+      'Sepolia': sepolia,
+      'Avalanche Fuji': avalancheFuji,
+      'Base Sepolia': baseSepolia,
+    };
+    return chainMap[networkName];
+  };
+
+  // Get selected network data and chain object
   const selectedNetworkData = SUPPORTED_NETWORKS.find(network => network.name === selectedNetwork);
-  const availableTokens = selectedNetworkData ? 
-    [selectedNetworkData.nativeCurrency, ...selectedNetworkData.tokens] : [];
+  const selectedChainObject = getChainObject(selectedNetwork);
   
-  const handleConfirmPayment = () => {
+  // Get native token balance using thirdweb hook
+  const { data: nativeBalance, isLoading: nativeLoading } = useWalletBalance({
+    client,
+    chain: selectedChainObject,
+    address: account?.address,
+  });
+
+  // Fetch token balances when network changes
+  useEffect(() => {
+    if (selectedNetworkData && account?.address && selectedChainObject) {
+      fetchTokenBalances();
+    }
+  }, [selectedNetworkData, account?.address, selectedChainObject, nativeBalance]);
+
+  // Fetch USD prices for tokens
+  const fetchTokenPrices = async (tokens: TokenBalance[]) => {
+    setLoadingPrices(true);
+    try {
+      // Get unique coinGeckoIds from the network data
+      const coinGeckoIds = [
+        selectedNetworkData?.nativeCurrency.coinGeckoId,
+        ...selectedNetworkData?.tokens.map(token => token.coinGeckoId) || []
+      ].filter(Boolean).join(',');
+
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${coinGeckoIds}&vs_currencies=usd`
+      );
+      
+      const prices = await response.json();
+      
+      // Update tokens with USD prices and values
+      const updatedTokens = tokens.map(token => {
+        const tokenData = selectedNetworkData?.nativeCurrency.symbol === token.symbol 
+          ? selectedNetworkData.nativeCurrency 
+          : selectedNetworkData?.tokens.find(t => t.symbol === token.symbol);
+          
+        const coinGeckoId = tokenData?.coinGeckoId;
+        const usdPrice = coinGeckoId && prices[coinGeckoId] ? prices[coinGeckoId].usd : 0;
+        const balance = parseFloat(token.balance);
+        const usdValue = usdPrice && balance ? (balance * usdPrice).toFixed(2) : '0.00';
+        
+        return {
+          ...token,
+          usdPrice,
+          usdValue
+        };
+      });
+      
+      setTokenBalances(updatedTokens);
+    } catch (error) {
+      console.error('Error fetching token prices:', error);
+      // Keep tokens without USD data if price fetch fails
+    } finally {
+      setLoadingPrices(false);
+    }
+  };
+
+  const fetchTokenBalances = async () => {
+    if (!selectedNetworkData || !account?.address || !selectedChainObject) return;
+    
+    setLoadingBalances(true);
+    const balances: TokenBalance[] = [];
+    
+    try {
+      // Add native token balance
+      if (nativeBalance) {
+        balances.push({
+          symbol: selectedNetworkData.nativeCurrency.symbol,
+          name: selectedNetworkData.nativeCurrency.name,
+          balance: formatBalance(nativeBalance.displayValue, 6),
+          decimals: selectedNetworkData.nativeCurrency.decimals,
+        });
+      }
+
+      // Fetch ERC20 token balances
+      for (const token of selectedNetworkData.tokens) {
+        try {
+          const contract = getContract({
+            client,
+            chain: selectedChainObject, // Use the full chain object
+            address: token.contractAddress!,
+          });
+
+          const balance = await balanceOf({
+            contract,
+            address: account.address,
+          });
+
+          const formattedBalance = formatTokenBalance(balance, token.decimals);
+          
+          balances.push({
+            symbol: token.symbol,
+            name: token.name,
+            balance: formattedBalance,
+            contractAddress: token.contractAddress,
+            decimals: token.decimals,
+          });
+        } catch (error) {
+          console.log(`Error fetching ${token.symbol} balance:`, error);
+          // Add token with 0 balance if fetch fails
+          balances.push({
+            symbol: token.symbol,
+            name: token.name,
+            balance: '0.00',
+            contractAddress: token.contractAddress,
+            decimals: token.decimals,
+          });
+        }
+      }
+
+      setTokenBalances(balances);
+      
+      // Fetch USD prices after getting balances
+      await fetchTokenPrices(balances);
+    } catch (error) {
+      console.error('Error fetching token balances:', error);
+    } finally {
+      setLoadingBalances(false);
+    }
+  };
+
+  const formatBalance = (balance: string, maxDecimals: number = 6): string => {
+    const num = parseFloat(balance);
+    if (num === 0) return '0.00';
+    if (num < 0.000001) return '< 0.000001';
+    return num.toFixed(Math.min(maxDecimals, 6));
+  };
+
+  const formatTokenBalance = (balance: bigint, decimals: number): string => {
+    const divisor = BigInt(10 ** decimals);
+    const quotient = balance / divisor;
+    const remainder = balance % divisor;
+    
+    const wholePart = quotient.toString();
+    const fractionalPart = remainder.toString().padStart(decimals, '0');
+    const trimmedFractional = fractionalPart.slice(0, 6).replace(/0+$/, '');
+    
+    if (trimmedFractional) {
+      return `${wholePart}.${trimmedFractional}`;
+    }
+    return wholePart;
+  };
+
+  const handleConfirmPayment = async () => {
     if (!selectedNetwork || !selectedToken) {
       Alert.alert('Error', 'Please select a network and token for payment');
       return;
     }
     
+    const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
+    const requiredAmount = calculateRequiredTokenAmount(selectedTokenBalance!);
+    const remainingBalance = getRemainingBalance(selectedTokenBalance!);
+    
+    // Show confirmation with option to send
     Alert.alert(
-      'Payment Confirmed',
-      `Payment of ${transactionData.amount} ${transactionData.currency} for ${transactionData.for} will be paid with ${selectedToken} on ${selectedNetwork}`,
-      [{ text: 'OK', onPress: () => router.back() }]
+      'Confirm Payment',
+      `⚠️ Payment Warning:
+
+You will be sending ${transactionData.amount} USD worth of ${selectedToken}.
+Your remaining ${selectedToken} balance will be ${remainingBalance} ${selectedToken}.
+
+Payment Details:
+• Item: ${transactionData.for}
+• Network: ${selectedNetwork}
+• Sending: ${requiredAmount} ${selectedToken}
+• To: ${transactionData.sellerWalletAddress?.slice(0, 6)}...${transactionData.sellerWalletAddress?.slice(-4)}
+
+Do you want to proceed?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount) }
+      ]
     );
+  };
+
+  const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string) => {
+    if (!account?.address || !selectedChainObject) return;
+    
+    setSendingTransaction(true);
+    
+    try {
+      const toAddress = transactionData.sellerWalletAddress;
+      
+      if (tokenBalance.contractAddress) {
+        // ERC20 Token Transfer
+        const contract = getContract({
+          client,
+          chain: selectedChainObject,
+          address: tokenBalance.contractAddress,
+        });
+
+        const transaction = transfer({
+          contract,
+          to: toAddress as string,
+          amount: requiredAmount,
+        });
+
+        sendTransaction(transaction, {
+          onSuccess: (result) => {
+            Alert.alert(
+              'Payment Sent Successfully! 🎉',
+              `Transaction completed:
+
+• Amount: ${requiredAmount} ${selectedToken}
+• USD Value: ${transactionData.amount}
+• Transaction Hash: ${result.transactionHash}
+• Network: ${selectedNetwork}
+
+The payment has been sent to the seller.`,
+              [{ text: 'OK', onPress: () => router.back() }]
+            );
+          },
+          onError: (error) => {
+            Alert.alert('Transaction Failed', `Error: ${error.message}\n\nPlease try again or check your wallet connection.`);
+          }
+        });
+      } else {
+        // Native Token Transfer (ETH, AVAX, MATIC)
+        const transaction = prepareTransaction({
+          client,
+          chain: selectedChainObject,
+          to: toAddress,
+          value: toWei(requiredAmount),
+        });
+
+        sendTransaction(transaction, {
+          onSuccess: (result) => {
+            Alert.alert(
+              'Payment Sent Successfully! 🎉',
+              `Transaction completed:
+
+• Amount: ${requiredAmount} ${selectedToken}
+• USD Value: ${transactionData.amount}
+• Transaction Hash: ${result.transactionHash}
+• Network: ${selectedNetwork}
+
+The payment has been sent to the seller.`,
+              [{ text: 'OK', onPress: () => router.back() }]
+            );
+          },
+          onError: (error) => {
+            Alert.alert('Transaction Failed', `Error: ${error.message}\n\nPlease try again or check your wallet connection.`);
+          }
+        });
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to prepare transaction. Please try again.');
+      console.error('Transaction error:', error);
+    } finally {
+      setSendingTransaction(false);
+    }
   };
 
   const handleNetworkSelect = (networkName: string) => {
     setSelectedNetwork(networkName);
     setSelectedToken(''); // Reset token when network changes
+    setTokenBalances([]); // Clear previous balances
     setShowNetworkModal(false);
   };
 
   const handleTokenSelect = (tokenSymbol: string) => {
     setSelectedToken(tokenSymbol);
     setShowTokenModal(false);
+  };
+
+  const hasInsufficientBalance = (tokenBalance: TokenBalance) => {
+    const tokenUsdValue = parseFloat(tokenBalance.usdValue || '0');
+    const requiredUsd = parseFloat(transactionData.amount);
+    return tokenUsdValue < requiredUsd;
+  };
+
+  const calculateRequiredTokenAmount = (tokenBalance: TokenBalance) => {
+    const requiredUsd = parseFloat(transactionData.amount);
+    const tokenUsdPrice = tokenBalance.usdPrice || 0;
+    
+    if (tokenUsdPrice === 0) return '0';
+    
+    const requiredTokenAmount = requiredUsd / tokenUsdPrice;
+    return requiredTokenAmount.toFixed(6); // 6 decimal places
+  };
+
+  const getRemainingBalance = (tokenBalance: TokenBalance) => {
+    const currentBalance = parseFloat(tokenBalance.balance);
+    const requiredAmount = parseFloat(calculateRequiredTokenAmount(tokenBalance));
+    const remaining = currentBalance - requiredAmount;
+    
+    return remaining > 0 ? remaining.toFixed(6) : '0';
   };
   
   return (
@@ -80,14 +403,91 @@ export default function TransactionDetailsScreen() {
 
           {selectedNetwork && (
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Select Token</Text>
-              <TouchableOpacity 
-                style={styles.selectorButton}
-                onPress={() => setShowTokenModal(true)}
-              >
-                <Text style={styles.selectorText}>{selectedToken || 'Choose Token'}</Text>
-                <Text style={styles.arrow}>▼</Text>
-              </TouchableOpacity>
+              <Text style={styles.inputLabel}>Your Token Balances</Text>
+              
+              {/* Warning Message */}
+              {selectedToken && (
+                <View style={styles.warningContainer}>
+                  <Text style={styles.warningText}>
+                    ⚠️ You will send ${transactionData.amount} USD worth of {selectedToken} when confirming payment
+                  </Text>
+                </View>
+              )}
+              
+              {loadingBalances || nativeLoading || loadingPrices ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#007AFF" />
+                  <Text style={styles.loadingText}>
+                    {loadingBalances || nativeLoading ? 'Loading balances...' : 'Loading prices...'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.tokenBalancesContainer}>
+                  {tokenBalances.map((token) => (
+                    <TouchableOpacity
+                      key={token.symbol}
+                      style={[
+                        styles.tokenBalanceButton,
+                        selectedToken === token.symbol && styles.selectedTokenButton,
+                        hasInsufficientBalance(token) && styles.insufficientBalanceButton,
+                      ]}
+                      onPress={() => handleTokenSelect(token.symbol)}
+                      disabled={hasInsufficientBalance(token)}
+                    >
+                      <View style={styles.tokenInfo}>
+                        <View style={styles.tokenHeader}>
+                          <Image source={getTokenIcon(token, selectedNetwork)} style={styles.tokenIcon} />
+                          <View style={styles.tokenNameContainer}>
+                            <Text style={[
+                              styles.tokenSymbol,
+                              selectedToken === token.symbol && styles.selectedTokenText,
+                              hasInsufficientBalance(token) && styles.insufficientBalanceText,
+                            ]}>
+                              {token.symbol}
+                            </Text>
+                            <Text style={[
+                              styles.tokenName,
+                              selectedToken === token.symbol && styles.selectedTokenText,
+                              hasInsufficientBalance(token) && styles.insufficientBalanceText,
+                            ]}>
+                              {token.name}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.balanceInfo}>
+                        <Text style={[
+                          styles.tokenBalance,
+                          selectedToken === token.symbol && styles.selectedTokenText,
+                          hasInsufficientBalance(token) && styles.insufficientBalanceText,
+                        ]}>
+                          {token.balance}
+                        </Text>
+                        {token.usdValue && (
+                          <Text style={[
+                            styles.usdValue,
+                            selectedToken === token.symbol && styles.selectedTokenText,
+                            hasInsufficientBalance(token) && styles.insufficientBalanceText,
+                          ]}>
+                            ${token.usdValue}
+                          </Text>
+                        )}
+                        {!hasInsufficientBalance(token) && token.usdPrice && (
+                          <Text style={[
+                            styles.requiredAmount,
+                            selectedToken === token.symbol && styles.selectedTokenText,
+                          ]}>
+                            Need: {calculateRequiredTokenAmount(token)} {token.symbol}
+                          </Text>
+                        )}
+                        {hasInsufficientBalance(token) && (
+                          <Text style={styles.insufficientText}>Insufficient</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -97,12 +497,14 @@ export default function TransactionDetailsScreen() {
         <TouchableOpacity 
           style={[
             styles.confirmButton, 
-            (!selectedNetwork || !selectedToken) && styles.disabledButton
+            ((!selectedNetwork || !selectedToken) || sendingTransaction) && styles.disabledButton
           ]} 
           onPress={handleConfirmPayment}
-          disabled={!selectedNetwork || !selectedToken}
+          disabled={!selectedNetwork || !selectedToken || sendingTransaction}
         >
-          <Text style={styles.buttonText}>Confirm Payment</Text>
+          <Text style={styles.buttonText}>
+            {sendingTransaction ? 'Sending...' : 'Confirm Payment'}
+          </Text>
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
@@ -127,44 +529,16 @@ export default function TransactionDetailsScreen() {
                   style={styles.modalItem}
                   onPress={() => handleNetworkSelect(network.name)}
                 >
-                  <Text style={styles.modalItemText}>{network.name}</Text>
+                  <View style={styles.modalItemContainer}>
+                    <Image source={getNetworkIcon(network.name)} style={styles.networkIcon} />
+                    <Text style={styles.modalItemText}>{network.name}</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </ScrollView>
             <TouchableOpacity 
               style={styles.modalCloseButton}
               onPress={() => setShowNetworkModal(false)}
-            >
-              <Text style={styles.modalCloseText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Token Selection Modal */}
-      <Modal
-        visible={showTokenModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowTokenModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Token</Text>
-            <ScrollView style={styles.modalList}>
-              {availableTokens.map((token) => (
-                <TouchableOpacity
-                  key={token.symbol}
-                  style={styles.modalItem}
-                  onPress={() => handleTokenSelect(token.symbol)}
-                >
-                  <Text style={styles.modalItemText}>{token.name} ({token.symbol})</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity 
-              style={styles.modalCloseButton}
-              onPress={() => setShowTokenModal(false)}
             >
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
@@ -233,13 +607,113 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  selectorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   selectorText: {
     fontSize: 16,
     color: '#333',
   },
+  networkIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 10,
+  },
   arrow: {
     fontSize: 16,
     color: '#666',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginLeft: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  tokenBalancesContainer: {
+    gap: 10,
+  },
+  tokenBalanceButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 15,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectedTokenButton: {
+    borderColor: '#007AFF',
+    backgroundColor: '#f0f8ff',
+  },
+  insufficientBalanceButton: {
+    borderColor: '#ffcccc',
+    backgroundColor: '#fff5f5',
+    opacity: 0.6,
+  },
+  tokenInfo: {
+    flex: 1,
+  },
+  tokenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  tokenIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  tokenNameContainer: {
+    flex: 1,
+  },
+  tokenSymbol: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  tokenName: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  balanceInfo: {
+    alignItems: 'flex-end',
+  },
+  tokenBalance: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  usdValue: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  requiredAmount: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  insufficientText: {
+    fontSize: 12,
+    color: '#ff4444',
+    marginTop: 2,
+  },
+  selectedTokenText: {
+    color: '#007AFF',
+  },
+  insufficientBalanceText: {
+    color: '#999',
   },
   buttonContainer: {
     padding: 20,
@@ -294,6 +768,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  modalItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   modalItemText: {
     fontSize: 16,
     color: '#333',
@@ -308,5 +786,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
     color: '#666',
+  },
+  warningContainer: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffc107',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });

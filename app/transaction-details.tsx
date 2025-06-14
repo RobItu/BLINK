@@ -8,6 +8,8 @@ import { avalanche, avalancheFuji, baseSepolia, ethereum, polygon, sepolia, arbi
 import { toWei } from "thirdweb/utils";
 import { client } from "@/constants/thirdweb";
 import { TransactionData, SUPPORTED_NETWORKS } from '@/types/transaction';
+import { BlinkPaymentService } from '@/services/BlinkPaymentService';
+
 
 interface TokenBalance {
   symbol: string;
@@ -256,83 +258,78 @@ Do you want to proceed?`,
     );
   };
 
-  const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string) => {
-    if (!account?.address || !selectedChainObject) return;
+  const handlePaymentSuccess = (result: any, requiredAmount: string, isCrossChain: boolean) => {
+  const successMessage = isCrossChain 
+    ? `Cross-chain payment initiated! 🚀\n\nThe payment will arrive at ${transactionData.network} shortly.`
+    : `Payment sent successfully! 🎉`;
+
+  Alert.alert('Payment Completed!', successMessage, [
+    { text: 'OK', onPress: () => router.back() }
+  ]);
+  setSendingTransaction(false);
+};
+
+const handlePaymentError = (error: any) => {
+  Alert.alert('Transaction Failed', `Error: ${error.message}`);
+  setSendingTransaction(false);
+};
+
+const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string) => {
+  if (!account?.address || !selectedChainObject) return;
+  
+  setSendingTransaction(true);
+  
+  try {
+    const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
     
-    setSendingTransaction(true);
+    // Show appropriate confirmation
+    const paymentMethod = isCrossChain ? 'Cross-Chain BLINK Payment' : 'Direct Transfer';
+    const confirmMessage = `${paymentMethod}\n\n${
+      isCrossChain 
+        ? `${selectedNetwork} → ${transactionData.network}\nAmount: ${requiredAmount} ${selectedToken}`
+        : `Network: ${selectedNetwork}\nAmount: ${requiredAmount} ${selectedToken}`
+    }\n\nProceed?`;
     
-    try {
-      const toAddress = transactionData.sellerWalletAddress;
-      
-      if (tokenBalance.contractAddress) {
-        // ERC20 Token Transfer
-        const contract = getContract({
-          client,
-          chain: selectedChainObject,
-          address: tokenBalance.contractAddress,
-        });
-
-        const transaction = transfer({
-          contract,
-          to: toAddress as string,
-          amount: requiredAmount,
-        });
-
-        sendTransaction(transaction, {
-          onSuccess: (result) => {
-            Alert.alert(
-              'Payment Sent Successfully! 🎉',
-              `Transaction completed:
-
-• Amount: ${requiredAmount} ${selectedToken}
-• USD Value: ${transactionData.amount}
-• Transaction Hash: ${result.transactionHash}
-• Network: ${selectedNetwork}
-
-The payment has been sent to the seller.`,
-              [{ text: 'OK', onPress: () => router.back() }]
-            );
-          },
-          onError: (error) => {
-            Alert.alert('Transaction Failed', `Error: ${error.message}\n\nPlease try again or check your wallet connection.`);
-          }
-        });
-      } else {
-        // Native Token Transfer (ETH, AVAX, MATIC)
-        const transaction = prepareTransaction({
-          client,
-          chain: selectedChainObject,
-          to: toAddress,
-          value: toWei(requiredAmount),
-        });
-
-        sendTransaction(transaction, {
-          onSuccess: (result) => {
-            Alert.alert(
-              'Payment Sent Successfully! 🎉',
-              `Transaction completed:
-
-• Amount: ${requiredAmount} ${selectedToken}
-• USD Value: ${transactionData.amount}
-• Transaction Hash: ${result.transactionHash}
-• Network: ${selectedNetwork}
-
-The payment has been sent to the seller.`,
-              [{ text: 'OK', onPress: () => router.back() }]
-            );
-          },
-          onError: (error) => {
-            Alert.alert('Transaction Failed', `Error: ${error.message}\n\nPlease try again or check your wallet connection.`);
-          }
-        });
+    Alert.alert('Confirm Payment', confirmMessage, [
+      { text: 'Cancel', style: 'cancel', onPress: () => setSendingTransaction(false) },
+      { 
+        text: 'Confirm', 
+        onPress: async () => {
+          await BlinkPaymentService.executePayment({
+            client,
+            sourceNetwork: selectedNetwork,
+            destinationNetwork: transactionData.network || '',
+            selectedChain: selectedChainObject,
+            userAddress: account.address,
+            sellerAddress: transactionData.sellerWalletAddress as string,
+            tokenBalance: {
+              symbol: tokenBalance.symbol,
+              contractAddress: tokenBalance.contractAddress,
+              balance: tokenBalance.balance,
+            },
+            requiredAmount,
+            sendTransaction: (tx: any, callbacks: any) => {
+              sendTransaction(tx, {
+                onSuccess: (result: any) => {
+                  handlePaymentSuccess(result, requiredAmount, isCrossChain);
+                  callbacks.onSuccess?.(result);
+                },
+                onError: (error: any) => {
+                  handlePaymentError(error);
+                  callbacks.onError?.(error);
+                },
+              });
+            },
+          });
+        }
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to prepare transaction. Please try again.');
-      console.error('Transaction error:', error);
-    } finally {
-      setSendingTransaction(false);
-    }
-  };
+    ]);
+  } catch (error) {
+    console.error('Payment error:', error);
+    Alert.alert('Error', 'Failed to process payment');
+    setSendingTransaction(false);
+  }
+};
 
   const handleNetworkSelect = (networkName: string) => {
     setSelectedNetwork(networkName);

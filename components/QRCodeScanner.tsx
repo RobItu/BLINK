@@ -2,19 +2,13 @@ import { CameraView, CameraType, useCameraPermissions, BarcodeScanningResult } f
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { TransactionData } from '@/types/transaction';
 
-interface TransactionData {
-  for: string;
-  amount: string;
-  currency: string;
-  timestamp: number;
-  id: string;
-  sellerWalletAddress?: string; 
-  sellerName?: string;
-  network?: string;   
+interface QRCodeScannerProps {
+  currentUserWallet?: string;
 }
 
-export const QRCodeScannerScreen = () => {
+export const QRCodeScannerScreen = ({currentUserWallet}: QRCodeScannerProps) => {
   const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -52,7 +46,9 @@ export const QRCodeScannerScreen = () => {
           // Navigate to transaction details
           router.push({
             pathname: '/transaction-details',
-            params: { transactionData: JSON.stringify(transactionData) }
+            params: { transactionData: JSON.stringify(transactionData),
+              currentUserWallet: currentUserWallet || 'Not Connected'
+             }
           });
           return;
         }

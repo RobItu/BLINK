@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, ActivityIndicator, Image, Linking } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useActiveAccount, useWalletBalance, useSendTransaction } from "thirdweb/react";
 import { getContract, prepareTransaction } from "thirdweb";
@@ -258,17 +258,35 @@ Do you want to proceed?`,
     );
   };
 
-  const handlePaymentSuccess = (result: any, requiredAmount: string, isCrossChain: boolean) => {
-  const successMessage = isCrossChain 
-    ? `Cross-chain payment initiated! 🚀\n\nThe payment will arrive at ${transactionData.network} shortly.`
-    : `Payment sent successfully! 🎉`;
+const handlePaymentSuccess = (result: any, requiredAmount: string, isCrossChain: boolean) => {
+  const transactionHash = result.transactionHash;
+  const ccipExplorerUrl = `https://ccip.chain.link/#/side-drawer/msg/${transactionHash}`;
+  
+  Alert.alert(
+    '✅ Payment Sent!',
+    `${isCrossChain ? '🌉 Cross-chain' : '💸 Direct'} payment completed
 
-  Alert.alert('Payment Completed!', successMessage, [
-    { text: 'OK', onPress: () => router.back() }
-  ]);
+💰 ${requiredAmount} ${selectedToken} ($${transactionData.amount})
+${isCrossChain ? `📡 ${selectedNetwork} → ${transactionData.network}` : `🌐 ${selectedNetwork}`}
+
+🔗 Hash: ${transactionHash.slice(0, 8)}...${transactionHash.slice(-6)}
+
+${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}`,
+    [
+      { text: 'Done', onPress: () => router.back() },
+      {
+        text: isCrossChain ? 'Track on CCIP' : 'View on Explorer',
+        onPress: () => {
+          const url = isCrossChain 
+            ? ccipExplorerUrl 
+            : `https://testnet.snowtrace.io/tx/${transactionHash}`;
+          Linking.openURL(url);
+        }
+      }
+    ]
+  );
   setSendingTransaction(false);
 };
-
 const handlePaymentError = (error: any) => {
   Alert.alert('Transaction Failed', `Error: ${error.message}`);
   setSendingTransaction(false);
@@ -276,10 +294,16 @@ const handlePaymentError = (error: any) => {
 
 const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string) => {
   if (!account?.address || !selectedChainObject) return;
+
   
   setSendingTransaction(true);
   
   try {
+        console.log('🐛 DEBUG PAYMENT CALCULATION:');
+  console.log('transactionData.amount:', transactionData.amount);
+  console.log('tokenBalance.usdPrice:', tokenBalance.usdPrice);
+  console.log('tokenBalance:', tokenBalance);
+  console.log('requiredAmount being sent:', requiredAmount);
     const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
     
     // Show appropriate confirmation
@@ -797,5 +821,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     fontWeight: '500',
+  },
+   successModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '90%',
+    alignItems: 'center',
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  successDetails: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  successAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#28a745',
+  },
+  successValue: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 10,
+  },
+  routeText: {
+    fontSize: 14,
+    color: '#007AFF',
+    marginBottom: 15,
+  },
+  hashContainer: {
+    padding: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  hashLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  hashValue: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: '#333',
+    marginTop: 5,
+  },
+  successButtons: {
+    width: '100%',
+  },
+  trackButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  trackButtonText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  doneButton: {
+    backgroundColor: '#28a745',
+    padding: 15,
+    borderRadius: 10,
+  },
+  doneButtonText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontWeight: 'bold',
   },
 });

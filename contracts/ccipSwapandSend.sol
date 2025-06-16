@@ -14,6 +14,11 @@ interface AggregatorV3Interface {
         returns (uint80 roundId, int256 price, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
+/**
+*@dev Interface for uniswap router contract. Testnet liquidity is usually really bad for TOKEN/USDC on testnet, so slippage is heavy.
+*NOTE: Should not be a problem in mainnet
+*
+**/
 interface ISwapRouter {
     struct ExactInputSingleParams {
         address tokenIn;
@@ -38,16 +43,25 @@ contract BLINKPayment is CCIPReceiver {
     IRouterClient private immutable ccipRouter;
     IERC20 private immutable linkToken;
     IERC20 private immutable usdcToken;
-    ISwapRouter public immutable uniswapRouter;
+    ISwapRouter public immutable dexRouter;
     
-    // Configuration - set per deployment
+    // Config
     address public immutable USDC_ADDRESS;
     address public immutable NATIVE_WRAPPER; // WETH/WAVAX/etc
     address public immutable ETH_USD_FEED;
     
-    // Testing toggle - set to true to force mock swaps  
-    bool public forceMockSwap = true; // Start with true by default
+    // Mockswap toggle - set to true to force mock swaps
+    bool public forceMockSwap = true; 
     
+    /**
+ * @dev Payment parameters for cross-chain token transfers. This is what the BLINK app sends! 
+ * @param tokenIn Address of input token (address(0) for native token)
+ * @param amountIn Amount of input token to send (in token's native decimals)
+ * @param tokenOut Address of desired output token on destination chain
+ * @param receiver Address to receive tokens on destination chain
+ * @param destinationChain CCIP chain selector for target blockchain
+ * @param minAmountOut Minimum acceptable output amount (slippage protection)
+ */
     struct PaymentParams {
         address tokenIn;
         uint256 amountIn;
@@ -64,18 +78,18 @@ contract BLINKPayment is CCIPReceiver {
         address _ccipRouter,
         address _linkToken,
         address _usdcToken,
-        address _uniswapRouter,
+        address _dexRouter,
         address _nativeWrapper,
-        address _ethUsdFeed
+        address _nativeUsdPriceFeed
     ) CCIPReceiver(_ccipRouter) {
         owner = msg.sender;
         ccipRouter = IRouterClient(_ccipRouter);
         linkToken = IERC20(_linkToken);
         usdcToken = IERC20(_usdcToken);
-        uniswapRouter = ISwapRouter(_uniswapRouter);
+        dexRouter = ISwapRouter(_dexRouter);
         USDC_ADDRESS = _usdcToken;
         NATIVE_WRAPPER = _nativeWrapper;
-        ETH_USD_FEED = _ethUsdFeed;
+        ETH_USD_FEED = _nativeUsdPriceFeed;
     }
 
     modifier onlyOwner() {
@@ -83,6 +97,12 @@ contract BLINKPayment is CCIPReceiver {
         _;
     }
 
+    /**
+    *@dev Main function BLINK app will call. Responsible for swapping tokens to USDC and sending it to CCIP to destination determined by user
+    *@param params - struct with needed information of tokens transferred and data to build CCIP message
+    *Note: Native-currency/USDC pair has terrible liquidity in testnets, so I created a mock swap using CL Feeds, however liquidity should not 
+    *NOTE: be a problem in mainnet. Correct route address must be used in constructor when deploying contract. Dex for sepolia/ethereum should be Uniswap
+    **/
     function processPayment(PaymentParams calldata params) external payable returns (bytes32 messageId) {
         if (params.amountIn == 0) revert InvalidAmount();
         
@@ -93,17 +113,17 @@ contract BLINKPayment is CCIPReceiver {
             IERC20(params.tokenIn).safeTransferFrom(msg.sender, address(this), params.amountIn);
         }
 
-        // Convert to USDC if needed - check forceMockSwap first
+        // Convert to USDC if needed
         uint256 usdcAmount;
         if (params.tokenIn == USDC_ADDRESS) {
             // No conversion needed
             usdcAmount = params.amountIn;
         } else if (forceMockSwap) {
-            // Force mock swap path (bypasses all complex logic)
+            // Force mock swap path (bypasses dexRoute swap logic)
             usdcAmount = _performMockSwap(params.tokenIn, params.amountIn);
             emit SwapExecuted(params.tokenIn, USDC_ADDRESS, params.amountIn, usdcAmount, "MockSwap");
         } else {
-            // Normal conversion logic
+            // Swap using dexRoute like Uniswap or other
             usdcAmount = _convertToUSDC(params.tokenIn, params.amountIn);
         }
 
@@ -119,9 +139,8 @@ contract BLINKPayment is CCIPReceiver {
             usdcAmount = _performMockSwap(tokenIn, amountIn);
             emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "MockSwap");
             return usdcAmount;
-        }
-        
-        // Try real swap first, fallback to mock swap
+        } else {
+            // Try real swap first, fallback to mock swap
         try this._attemptRealSwap(tokenIn, amountIn) returns (uint256 swapResult) {
             usdcAmount = swapResult;
             emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "RealSwap");
@@ -129,13 +148,24 @@ contract BLINKPayment is CCIPReceiver {
             usdcAmount = _performMockSwap(tokenIn, amountIn);
             emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "MockSwap");
         }
+        }
     }
     
-    // Owner function to toggle mock swap for testing
     function setForceMockSwap(bool _force) external onlyOwner {
         forceMockSwap = _force;
     }
 
+   /**
+    * @dev Attempts to swap tokens to USDC using the configured DEX router
+    * @param tokenIn Input token address (address(0) for native tokens)
+    * @param amountIn Amount of input tokens to swap
+    * @return Amount of USDC received from the swap
+    * 
+    * @notice This function can only be called internally via try/catch pattern
+    * @notice Uses 0.3% fee tier and 5-minute deadline for swaps
+    * @notice For native tokens, automatically wraps to WETH/WAVAX format
+    * @notice If no liquidity in pool will throw a gas error
+    */
     function _attemptRealSwap(address tokenIn, uint256 amountIn) external returns (uint256) {
         require(msg.sender == address(this), "Only self-call allowed");
         
@@ -144,9 +174,9 @@ contract BLINKPayment is CCIPReceiver {
         if (tokenIn == address(0)) {
             // Native token → USDC (works for ETH, AVAX, etc.)
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-                tokenIn: NATIVE_WRAPPER,    // WETH/WAVAX
+                tokenIn: NATIVE_WRAPPER,    
                 tokenOut: USDC_ADDRESS,
-                fee: 3000,                  // 0.3%
+                fee: 3000,                  
                 recipient: address(this),
                 deadline: block.timestamp + 300,
                 amountIn: amountIn,
@@ -154,11 +184,11 @@ contract BLINKPayment is CCIPReceiver {
                 sqrtPriceLimitX96: 0
             });
             
-            uniswapRouter.exactInputSingle{value: amountIn}(params);
+            dexRouter.exactInputSingle{value: amountIn}(params);
             
         } else {
             // ERC20 → USDC
-            IERC20(tokenIn).safeApprove(address(uniswapRouter), amountIn);
+            IERC20(tokenIn).safeApprove(address(dexRouter), amountIn);
             
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
                 tokenIn: tokenIn,
@@ -171,12 +201,16 @@ contract BLINKPayment is CCIPReceiver {
                 sqrtPriceLimitX96: 0
             });
             
-            uniswapRouter.exactInputSingle(params);
+            dexRouter.exactInputSingle(params);
         }
         
         uint256 balanceAfter = IERC20(USDC_ADDRESS).balanceOf(address(this));
         return balanceAfter - balanceBefore;
     }
+
+       /**
+    * @dev Uses CL feeds to mock a swap. Contract must have USDC! 
+    */
 
     function _performMockSwap(address tokenIn, uint256 amountIn) internal returns (uint256 usdcAmount) {
         if (tokenIn == address(0) || tokenIn == NATIVE_WRAPPER) {
@@ -195,19 +229,17 @@ contract BLINKPayment is CCIPReceiver {
     function _getNativeToUSDCAmount(uint256 nativeAmount) internal view returns (uint256) {
         if (ETH_USD_FEED == address(0)) {
             // No price feed configured, use fallback rate (e.g., $2000 per token)
-            return (nativeAmount * 2000) / 1e12; // Assumes native token worth $2000, convert to 6 decimals
+            return (nativeAmount * 2000) / 1e12; 
         }
-        
+
         try AggregatorV3Interface(ETH_USD_FEED).latestRoundData() returns (
             uint80, int256 price, uint256, uint256 updatedAt, uint80
         ) {
             if (price <= 0 || updatedAt == 0) {
-                // Fallback rate
                 return (nativeAmount * 2000) / 1e12;
             }
             
-            // Convert: nativeAmount * price (8 decimals) / 1e12 = USDC (6 decimals)
-            return (nativeAmount * uint256(price)) / 1e20; // 1e18 + 1e8 - 1e6 = 1e20
+            return (nativeAmount * uint256(price)) / 1e20; 
         } catch {
             // Fallback rate
             return (nativeAmount * 2000) / 1e12;
@@ -245,7 +277,6 @@ contract BLINKPayment is CCIPReceiver {
         if (tokenOut == USDC_ADDRESS) {
             usdcToken.safeTransfer(receiver, usdcAmount);
         } else {
-            // For simplicity, just send USDC (can be enhanced to swap back)
             usdcToken.safeTransfer(receiver, usdcAmount);
         }
     }
@@ -255,6 +286,27 @@ contract BLINKPayment is CCIPReceiver {
         IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
     }
 
+     function withdrawAll() external onlyOwner {
+        // Withdraw LINK
+        uint256 linkBalance = linkToken.balanceOf(address(this));
+        if (linkBalance > 0) {
+            linkToken.transfer(owner, linkBalance);
+        }
+        
+        // Withdraw USDC  
+        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
+        if (usdcBalance > 0) {
+            IERC20(USDC_ADDRESS).transfer(owner, usdcBalance);
+        }
+        
+        // Withdraw native tokens (ETH/AVAX)
+        uint256 nativeBalance = address(this).balance;
+        if (nativeBalance > 0) {
+            payable(owner).transfer(nativeBalance);
+        }
+    }
+
+    //=================================== DEBUG FUNCTIONS ================================================= //
 
     function debugMockSwap(address tokenIn, uint256 amountIn) external view returns (
         uint256 calculatedUSDC,
@@ -274,25 +326,6 @@ contract BLINKPayment is CCIPReceiver {
         hasEnoughUSDC = contractUSDCBalance >= calculatedUSDC;
     }
 
-    function withdrawAll() external onlyOwner {
-        // Withdraw LINK
-        uint256 linkBalance = linkToken.balanceOf(address(this));
-        if (linkBalance > 0) {
-            linkToken.transfer(owner, linkBalance);
-        }
-        
-        // Withdraw USDC  
-        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        if (usdcBalance > 0) {
-            IERC20(USDC_ADDRESS).transfer(owner, usdcBalance);
-        }
-        
-        // Withdraw native tokens (ETH/AVAX)
-        uint256 nativeBalance = address(this).balance;
-        if (nativeBalance > 0) {
-            payable(owner).transfer(nativeBalance);
-        }
-    }
 
     function getEstimatedFee(uint64 destinationChain, uint256 usdcAmount) external view returns (uint256) {
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);

@@ -356,7 +356,7 @@ const BLINK_CONTRACT_ABI = [
 
 // BLINK Contract Configuration
 const BLINK_CONTRACT_ADDRESSES: Record<string, string> = {
-  'Avalanche Fuji': '0xC1674C880Ce7476d9310835B2101f633d4e23f67',
+  'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
   'Sepolia': '0xE220b9356fc15395dAf0037761bc8078dB39842b',
 };
 

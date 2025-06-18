@@ -17,16 +17,56 @@ const CIRCLE_API_KEY = process.env.CIRCLE_API_KEY;
 const CIRCLE_BASE_URL = 'https://api-sandbox.circle.com/v1';
 let CHAIN = 'AVAX';
 
+
+
 // ==========================================
 // CIRCLE API HELPER FUNCTIONS
 // ==========================================
+
+//generate a unique idempotency key
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+// Add this helper function after your other Circle API functions
+async function getExistingDepositAddresses() {
+  try {
+    console.log('🔍 Checking existing Circle deposit addresses...');
+    
+    const response = await fetch(`${CIRCLE_BASE_URL}/businessAccount/wallets/addresses/deposit`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${CIRCLE_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('❌ Circle API Error:', errorData);
+      throw new Error(`Circle API Error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log('✅ Existing deposit addresses:', data);
+    return data.data || [];
+    
+  } catch (error) {
+    console.error('❌ Failed to get existing deposit addresses:', error);
+    return [];
+  }
+}
 
 async function createDepositAddress(currency = 'USD', chain = CHAIN) {
   try {
     console.log(`🏗️ Creating deposit address for ${currency} on ${chain}...`);
     
     // Generate unique idempotency key
-    const idempotencyKey = `cf72444b-6561-465b-97cf-6797c15842e7`;
+    const idempotencyKey = generateUUID();
     
     // Use dynamic import for node-fetch if built-in fetch fails
     let fetchFunction = fetch;
@@ -81,7 +121,7 @@ app.get('/health', (req, res) => {
 app.post('/api/merchants/:merchantId/setup-circle', async (req, res) => {
   try {
     const { merchantId } = req.params;
-    const { chain = CHAIN } = req.body;
+    const { chain = 'AVAX' } = req.body;
     
     console.log(`🚀 Setting up Circle for merchant: ${merchantId} on chain: ${chain}`);
     
@@ -94,19 +134,48 @@ app.post('/api/merchants/:merchantId/setup-circle', async (req, res) => {
       });
     }
     
-    // Check if merchant already has deposit address for this chain
-    let merchant = merchants.get(merchantId);
-    if (merchant?.depositAddress && merchant?.chain === chain) {
+    // Check existing Circle deposit addresses first
+    const existingAddresses = await getExistingDepositAddresses();
+    const existingAddress = existingAddresses.find(addr => addr.chain === chain && addr.currency === 'USD');
+    
+    if (existingAddress) {
+      console.log(`✅ Found existing deposit address for ${chain}: ${existingAddress.address}`);
+      
+      // Store/update merchant data with existing address
+      let merchant = merchants.get(merchantId);
+      if (!merchant) {
+        merchant = {
+          id: merchantId,
+          depositId: existingAddress.id,
+          depositAddress: existingAddress.address,
+          currency: existingAddress.currency,
+          chain: existingAddress.chain,
+          fiatEnabled: true,
+          createdAt: new Date()
+        };
+      } else {
+        merchant.depositId = existingAddress.id;
+        merchant.depositAddress = existingAddress.address;
+        merchant.currency = existingAddress.currency;
+        merchant.chain = existingAddress.chain;
+        merchant.fiatEnabled = true;
+      }
+      
+      merchants.set(merchantId, merchant);
+      
       return res.json({
         success: true,
-        message: 'Deposit address already exists',
-        depositAddress: merchant.depositAddress,
-        chain: merchant.chain,
-        depositId: merchant.depositId
+        message: 'Using existing Circle deposit address',
+        depositAddress: existingAddress.address,
+        chain: existingAddress.chain,
+        currency: existingAddress.currency,
+        depositId: existingAddress.id,
+        note: 'This is Circle SANDBOX - using existing address'
       });
     }
     
-    // Create deposit address with Circle
+    // If no existing address, create new one
+    console.log(`📝 No existing address found for ${chain}, creating new one...`);
     const circleResponse = await createDepositAddress('USD', chain);
     
     if (!circleResponse.data) {
@@ -116,6 +185,7 @@ app.post('/api/merchants/:merchantId/setup-circle', async (req, res) => {
     const { id, address, currency, chain: responseChain } = circleResponse.data;
     
     // Store merchant data
+    let merchant = merchants.get(merchantId);
     if (!merchant) {
       merchant = {
         id: merchantId,
@@ -147,7 +217,7 @@ app.post('/api/merchants/:merchantId/setup-circle', async (req, res) => {
       chain: responseChain,
       currency: currency,
       depositId: id,
-      note: 'This is Circle SANDBOX - use testnet tokens only!'
+      note: 'This is Circle SANDBOX - new address created'
     });
     
   } catch (error) {
@@ -276,7 +346,16 @@ app.get('/api/circle/deposit-addresses', async (req, res) => {
 // Test bank account creation (direct Circle call)
 app.post('/api/test/create-bank', async (req, res) => {
   try {
-    console.log('🧪 Testing direct bank account creation...');
+    console.log('🧪 Creating bank account with user details...');
+    
+    const { bankDetails } = req.body; // Get bank details from request
+    
+    if (!bankDetails) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bank details are required'
+      });
+    }
     
     const url = 'https://api-sandbox.circle.com/v1/businessAccount/banks/wires';
     const options = {
@@ -286,25 +365,18 @@ app.post('/api/test/create-bank', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        bankAddress: {country: 'US', bankName: 'SAN FRANSISCO'},
-        billingDetails: {
-          postalCode: '01234',
-          district: 'MA',
-          line1: '100 Money Street',
-          country: 'US',
-          city: 'Boston',
-          name: 'Satoshi Nakamoto'
-        },
-        routingNumber: '121000248',
-        accountNumber: '12340010',
-        idempotencyKey: 'ba943ff1-ca16-49b2-ba55-1057e70ca5c7'
+        bankAddress: bankDetails.bankAddress,          // Use user data
+        billingDetails: bankDetails.billingDetails,    // Use user data
+        routingNumber: bankDetails.routingNumber,      // Use user data
+        accountNumber: bankDetails.accountNumber,      // Use user data
+        idempotencyKey: generateUUID()                 // Generate random UUID
       })
     };
     
     const response = await fetch(url, options);
     const json = await response.json();
     
-    console.log('✅ Direct Circle response:', json);
+    console.log('✅ Bank account created with user details:', json);
     
     res.json({
       success: true,
@@ -312,7 +384,7 @@ app.post('/api/test/create-bank', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Test failed:', error);
+    console.error('❌ Bank creation failed:', error);
     res.status(500).json({
       success: false,
       error: error.message

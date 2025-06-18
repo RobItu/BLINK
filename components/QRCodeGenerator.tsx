@@ -61,64 +61,77 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
 
   // Currency toggle handler with bank workflow
   const handleCurrencyToggle = async (newCurrencyType: CurrencyType) => {
-    console.log('API Base URL:', API_BASE);
-
-    if (newCurrencyType === 'USD') {
-      // Step 1: Setup Circle deposit address
-      try {
-        const response = await fetch(`${API_BASE}/api/merchants/${connectedWalletAddress}/setup-circle`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chain: 'AVAX' })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-          setCircleDepositAddress(data.depositAddress);
-          
-          // Step 2: Check if bank details exist
-          const hasBankDetails = await bankStorageService.hasBankDetails(connectedWalletAddress || '');
-          
-          if (!hasBankDetails) {
-            // Step 3: Show bank modal if no details
-            setShowBankModal(true);
-            return; // Don't set currency yet
-          }
-          
-          // Bank details exist, proceed with fiat
-          setCurrencyType('USD');
-        }
-      } catch (error) {
-        console.error('Failed to setup Circle:', error);
-        return;
-      }
-    } else {
-      setCurrencyType(newCurrencyType);
-    }
-  };
-
-  // Bank save handler
-  const handleBankSave = async (bankDetails: BankDetails) => {
+  console.log('API Base URL:', API_BASE);
+  
+  if (newCurrencyType === 'USD') {
+    // Step 1: Setup Circle deposit address
     try {
-      // Save to AsyncStorage
-      await bankStorageService.saveBankDetails(connectedWalletAddress || '', bankDetails);
+      // Map your network names to Circle chain codes
+      const networkToChainMap: { [key: string]: string } = {
+        'Ethereum': 'ETH',
+        'Avalanche': 'AVAX', 
+        'Avalanche Fuji': 'AVAX',
+        'Base Sepolia': 'BASE',
+        'Polygon': 'POLY',
+        'Arbitrum': 'ARB',
+        'Sepolia': 'ETH'
+      };
       
-      // Call create-bank API
-      const response = await fetch(`${API_BASE}/api/test/create-bank`, {
+      const chainCode = networkToChainMap[desiredNetwork];
+      
+      const response = await fetch(`${API_BASE}/api/merchants/${connectedWalletAddress}/setup-circle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chain: chainCode }) // Pass the mapped chain
       });
       
       const data = await response.json();
       if (data.success) {
-        // Now set currency to fiat
+        setCircleDepositAddress(data.depositAddress);
+        
+        // Step 2: Check if bank details exist
+        const hasBankDetails = await bankStorageService.hasBankDetails(connectedWalletAddress || '');
+        
+        if (!hasBankDetails) {
+          // Step 3: Show bank modal if no details
+          setShowBankModal(true);
+          return; // Don't set currency yet
+        }
+        
+        // Bank details exist, proceed with fiat
         setCurrencyType('USD');
-        console.log('Bank account linked successfully');
       }
     } catch (error) {
-      console.error('Failed to save bank details:', error);
+      console.error('Failed to setup Circle:', error);
+      return;
     }
-  };
+  } else {
+    setCurrencyType(newCurrencyType);
+  }
+};
+
+  // Bank save handler
+  const handleBankSave = async (bankDetails: BankDetails) => {
+  try {
+    // Save to AsyncStorage
+    await bankStorageService.saveBankDetails(connectedWalletAddress || '', bankDetails);
+    
+    // Call create-bank API with user's bank details
+    const response = await fetch(`${API_BASE}/api/test/create-bank`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bankDetails })  // Send user's details
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      setCurrencyType('USD');
+      console.log('Bank account linked successfully');
+    }
+  } catch (error) {
+    console.error('Failed to save bank details:', error);
+  }
+};
 
   // Get recipient address based on currency type
   const getRecipientAddress = () => {

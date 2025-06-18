@@ -215,9 +215,10 @@ export default function HomeScreen() {
 			) : (
 				// QR Code Generator Screen - Pass wallet data as props
 				<QRCodeGenerator 
-					connectedWalletAddress={account?.address}
-					isWalletConnected={!!account}
-				/>
+  connectedWalletAddress={account?.address}
+  isWalletConnected={!!account}
+  merchantId={account?.address || 'demo_merchant'} // Add this line
+/>
 			)}
 		</ParallaxScrollView>
 	);

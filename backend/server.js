@@ -15,7 +15,7 @@ const merchants = new Map();
 // Circle API configuration
 const CIRCLE_API_KEY = process.env.CIRCLE_API_KEY;
 const CIRCLE_BASE_URL = 'https://api-sandbox.circle.com/v1';
-let CHAIN = 'XLM';
+let CHAIN = 'AVAX';
 
 // ==========================================
 // CIRCLE API HELPER FUNCTIONS

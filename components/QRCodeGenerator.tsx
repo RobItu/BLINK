@@ -1,12 +1,18 @@
+// QRCodeGenerator.tsx - Clean Bank Integration
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image, Alert } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { createTransaction, CurrencyType, TransactionData } from '../types/transaction';
 import { SUPPORTED_NETWORKS } from '../types/transaction';
+import { BankDetailsModal } from './BankDetailsModal';
+import { bankStorageService, BankDetails } from '../services/BankStorageService';
+
+const API_BASE = process.env.EXPO_PUBLIC_API_URL; // Ngrok URL or local backend
 
 interface QRCodeGeneratorProps {
   connectedWalletAddress?: string;
   isWalletConnected?: boolean;
+  merchantId: string;
 }
 
 const getNetworkIcon = (networkName: string) => {
@@ -18,23 +24,20 @@ const getNetworkIcon = (networkName: string) => {
     'Arbitrum': require('../assets/images/networks/arbitrum.png'),
     'Ethereum': require('../assets/images/networks/ethereum.png'),
     'Avalanche': require('../assets/images/networks/avalancheFuji.png'),
-
   };
   return iconMap[networkName] || require('../assets/images/networks/sepolia.png');
 };
 
-// Simple network options from SUPPORTED_NETWORKS
 const NETWORK_OPTIONS = SUPPORTED_NETWORKS.map(network => ({
   name: network.name,
   symbol: network.nativeCurrency.symbol,
-  icon: getNetworkIcon(network.name) // Add this function
+  icon: getNetworkIcon(network.name)
 }));
-
-
 
 export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({ 
   connectedWalletAddress,
-  isWalletConnected = false 
+  isWalletConnected = false,
+  merchantId
 }) => {
   const [currencyType, setCurrencyType] = useState<CurrencyType>('USDC');
   const [amount, setAmount] = useState<string>('');
@@ -42,8 +45,12 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [sellerWalletAddress, setSellerWalletAddress] = useState<string>('');
   const [memo, setmemo] = useState<string>('');
   const [qrSize, setQrSize] = useState<number>(200);
-  const [desiredNetwork, setDesiredNetwork] = useState<string>('Ethereum'); // Default to first option
+  const [desiredNetwork, setDesiredNetwork] = useState<string>('Ethereum');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  
+  // Bank workflow state
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [circleDepositAddress, setCircleDepositAddress] = useState<string | null>(null);
   
   // Auto-populate seller wallet address when wallet connects
   useEffect(() => {
@@ -51,8 +58,77 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
       setSellerWalletAddress(connectedWalletAddress);
     }
   }, [connectedWalletAddress]);
-  
-  // Create the full transaction data object (for storage/backend)
+
+  // Currency toggle handler with bank workflow
+  const handleCurrencyToggle = async (newCurrencyType: CurrencyType) => {
+    console.log('API Base URL:', API_BASE);
+
+    if (newCurrencyType === 'USD') {
+      // Step 1: Setup Circle deposit address
+      try {
+        const response = await fetch(`${API_BASE}/api/merchants/${connectedWalletAddress}/setup-circle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chain: 'AVAX' })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          setCircleDepositAddress(data.depositAddress);
+          
+          // Step 2: Check if bank details exist
+          const hasBankDetails = await bankStorageService.hasBankDetails(connectedWalletAddress || '');
+          
+          if (!hasBankDetails) {
+            // Step 3: Show bank modal if no details
+            setShowBankModal(true);
+            return; // Don't set currency yet
+          }
+          
+          // Bank details exist, proceed with fiat
+          setCurrencyType('USD');
+        }
+      } catch (error) {
+        console.error('Failed to setup Circle:', error);
+        return;
+      }
+    } else {
+      setCurrencyType(newCurrencyType);
+    }
+  };
+
+  // Bank save handler
+  const handleBankSave = async (bankDetails: BankDetails) => {
+    try {
+      // Save to AsyncStorage
+      await bankStorageService.saveBankDetails(connectedWalletAddress || '', bankDetails);
+      
+      // Call create-bank API
+      const response = await fetch(`${API_BASE}/api/test/create-bank`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        // Now set currency to fiat
+        setCurrencyType('USD');
+        console.log('Bank account linked successfully');
+      }
+    } catch (error) {
+      console.error('Failed to save bank details:', error);
+    }
+  };
+
+  // Get recipient address based on currency type
+  const getRecipientAddress = () => {
+    if (currencyType === 'USD' && circleDepositAddress) {
+      return circleDepositAddress; // Use Circle address for fiat
+    }
+    return sellerWalletAddress || 'Not Connected'; // Use ThirdWeb wallet for crypto
+  };
+
+  // Create transaction data
   const fullTransactionData: TransactionData = createTransaction(
     itemName,
     amount,
@@ -61,22 +137,23 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
     memo || undefined
   );
   
-  
-  // Even more compact: just essential info
+  // QR code data
   const compactData = {
     for: itemName,
     amount: amount,
     currency: currencyType,
     timestamp: Date.now(),
     id: fullTransactionData.id,
-    sellerWalletAddress: sellerWalletAddress || 'Not Connected',
+    sellerWalletAddress: getRecipientAddress(),
     memo: memo || undefined,
     network: desiredNetwork,
+    merchantId: merchantId,
+    isCirclePayment: currencyType === 'USD' && !!circleDepositAddress
   };
   
-  // Convert to JSON string for QR code (using compact version)
   const qrData = JSON.stringify(compactData);
   
+  // Helper functions
   const handleUseConnectedWallet = () => {
     if (connectedWalletAddress) {
       setSellerWalletAddress(connectedWalletAddress);
@@ -89,6 +166,17 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   };
 
   const selectedNetwork = NETWORK_OPTIONS.find(option => option.name === desiredNetwork);
+
+  const deleteBankDetails = async () => {
+  try {
+    const success = await bankStorageService.removeBankDetails(connectedWalletAddress || '');
+    if (success) {
+      Alert.alert('Success', 'Bank details deleted');
+    }
+  } catch (error) {
+    Alert.alert('Error', 'Failed to delete bank details');
+  }
+};
   
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -116,44 +204,44 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
           <Text style={styles.inputLabel}>Destination Network</Text>
           <View style={styles.dropdownContainer}>
             <TouchableOpacity 
-        style={styles.dropdownButton}
-        onPress={() => setIsDropdownOpen(!isDropdownOpen)}
-      >
-        <View style={styles.selectedContainer}>
-          {selectedNetwork && (
-            <Image source={selectedNetwork.icon} style={styles.networkIcon} />
-          )}
-          <Text style={styles.selectedText}>
-            {selectedNetwork ? selectedNetwork.name : 'Select Network'}
-          </Text>
-        </View>
-        <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
-      </TouchableOpacity>
-
-      {isDropdownOpen && (
-        <View style={styles.dropdown}>
-          {NETWORK_OPTIONS.map((option) => (
-            <TouchableOpacity
-              key={option.name}
-              style={[
-                styles.dropdownItem,
-                desiredNetwork === option.name && styles.selectedItem
-              ]}
-              onPress={() => handleNetworkSelect(option.name)}
+              style={styles.dropdownButton}
+              onPress={() => setIsDropdownOpen(!isDropdownOpen)}
             >
-              <View style={styles.dropdownItemContainer}>
-                <Image source={option.icon} style={styles.networkIcon} />
-                <Text style={[
-                  styles.dropdownItemText,
-                  desiredNetwork === option.name && styles.selectedItemText
-                ]}>
-                  {option.name}
+              <View style={styles.selectedContainer}>
+                {selectedNetwork && (
+                  <Image source={selectedNetwork.icon} style={styles.networkIcon} />
+                )}
+                <Text style={styles.selectedText}>
+                  {selectedNetwork ? selectedNetwork.name : 'Select Network'}
                 </Text>
               </View>
+              <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      )}
+
+            {isDropdownOpen && (
+              <View style={styles.dropdown}>
+                {NETWORK_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.name}
+                    style={[
+                      styles.dropdownItem,
+                      desiredNetwork === option.name && styles.selectedItem
+                    ]}
+                    onPress={() => handleNetworkSelect(option.name)}
+                  >
+                    <View style={styles.dropdownItemContainer}>
+                      <Image source={option.icon} style={styles.networkIcon} />
+                      <Text style={[
+                        styles.dropdownItemText,
+                        desiredNetwork === option.name && styles.selectedItemText
+                      ]}>
+                        {option.name}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         </View>
 
@@ -165,7 +253,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
             onChangeText={setItemName}
             placeholder="e.g. Lemonade, Coffee, Haircut"
             placeholderTextColor="#999"
-            maxLength={30} // Limit length for QR efficiency
+            maxLength={30}
           />
           <Text style={styles.characterCount}>{itemName.length}/30</Text>
         </View>
@@ -211,7 +299,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
             onChangeText={setmemo}
             placeholder="Add a note or memo"
             placeholderTextColor="#999"
-            maxLength={20} // Limit length for QR efficiency
+            maxLength={20}
           />
           <Text style={styles.characterCount}>{memo.length}/20</Text>
         </View>
@@ -221,36 +309,47 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
           <View style={styles.currencySelector}>
             <TouchableOpacity 
               style={[styles.currencyButton, currencyType === 'USDC' && styles.selectedCurrency]}
-              onPress={() => setCurrencyType('USDC')}
+              onPress={() => handleCurrencyToggle('USDC')}
             >
               <Text style={[styles.currencyText, currencyType === 'USDC' && styles.selectedText]}>
                 USDC
               </Text>
+              <Text style={styles.currencySubtext}>Receive crypto</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
               style={[styles.currencyButton, currencyType === 'USD' && styles.selectedCurrency]}
-              onPress={() => setCurrencyType('USD')}
+              onPress={() => handleCurrencyToggle('USD')}
             >
               <Text style={[styles.currencyText, currencyType === 'USD' && styles.selectedText]}>
                 USD (Fiat)
               </Text>
+              <Text style={styles.currencySubtext}>Auto-convert to bank</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
       
       <View style={styles.previewContainer}>
+        <TouchableOpacity 
+  style={styles.currencyButton} 
+  onPress={deleteBankDetails}
+>
+  <Text>DEBUG: Delete Bank Details</Text>
+</TouchableOpacity>
         <Text style={styles.previewTitle}>Preview</Text>
         <Text style={styles.previewText}>For: {itemName}</Text>
         <Text style={styles.previewText}>Amount: {amount} {currencyType}</Text>
         <Text style={styles.previewText}>
-          Seller: {sellerWalletAddress ? 
-            `${sellerWalletAddress.slice(0, 6)}...${sellerWalletAddress.slice(-4)}` : 
+          Seller: {getRecipientAddress() ? 
+            `${getRecipientAddress().slice(0, 6)}...${getRecipientAddress().slice(-4)}` : 
             'Not set'
           }
         </Text>
         {memo && <Text style={styles.previewText}>Memo: {memo}</Text>}
+        {currencyType === 'USD' && (
+          <Text style={styles.previewText}>💰 Will auto-convert to USD in your bank</Text>
+        )}
       </View>
       
       <View style={styles.qrContainer}>
@@ -265,6 +364,13 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
       <Text style={styles.instructionText}>
         Have the customer scan this QR code to proceed with payment
       </Text>
+      
+      {/* Bank Details Modal */}
+      <BankDetailsModal
+        visible={showBankModal}
+        onClose={() => setShowBankModal(false)}
+        onSave={handleBankSave}
+      />
     </ScrollView>
   );
 };
@@ -371,7 +477,6 @@ const styles = StyleSheet.create({
     borderColor: '#4caf50',
     backgroundColor: '#f8fff8',
   },
-  // Dropdown styles
   dropdownContainer: {
     position: 'relative',
     zIndex: 1000,
@@ -396,11 +501,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     marginRight: 8,
-  },
-  symbolText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
   },
   arrow: {
     fontSize: 16,
@@ -439,11 +539,6 @@ const styles = StyleSheet.create({
   dropdownItemText: {
     fontSize: 16,
     color: '#333',
-  },
-  dropdownSymbolText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
   },
   selectedItemText: {
     color: '#fff',
@@ -487,7 +582,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-
+  currencySubtext: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+    textAlign: 'center',
+  },
   qrContainer: {
     padding: 20,
     backgroundColor: '#fff',
@@ -508,14 +608,14 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   networkIcon: {
-  width: 24,
-  height: 24,
-  borderRadius: 12,
-  marginRight: 10,
-},
-dropdownItemContainer: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  flex: 1,
-},
-  });
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 10,
+  },
+  dropdownItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+});

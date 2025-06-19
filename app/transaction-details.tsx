@@ -1,3 +1,4 @@
+// transaction-details.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, ActivityIndicator, Image, Linking } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,6 +10,7 @@ import { toWei } from "thirdweb/utils";
 import { client } from "@/constants/thirdweb";
 import { TransactionData, SUPPORTED_NETWORKS } from '@/types/transaction';
 import { BlinkPaymentService } from '@/services/BlinkPaymentService';
+import { transactionStorageService } from '@/services/TransactionStorageService';
 
 
 interface TokenBalance {
@@ -258,9 +260,25 @@ Do you want to proceed?`,
     );
   };
 
-const handlePaymentSuccess = (result: any, requiredAmount: string, isCrossChain: boolean) => {
+const handlePaymentSuccess = async (result: any, requiredAmount: string, isCrossChain: boolean) => {
   const transactionHash = result.transactionHash;
-  const ccipExplorerUrl = `https://ccip.chain.link/#/side-drawer/msg/${transactionHash}`;
+  const ccipExplorerUrl = `https://ccip.chain.link`;
+
+    await transactionStorageService.addTransaction(account?.address!, {
+    id: transactionData.id,
+    type: 'sent',
+    amount: transactionData.amount,
+    currency: transactionData.currency as 'USDC' | 'USD',
+    itemName: transactionData.for,
+    memo: transactionData.memo,
+    network: selectedNetwork,
+    transactionHash: result.transactionHash,
+    fromAddress: account?.address!,
+    toAddress: transactionData.sellerWalletAddress!,
+    timestamp: Date.now(),
+    status: 'complete',
+    isCirclePayment: transactionData.isCirclePayment
+  });
   
   Alert.alert(
     '✅ Payment Sent!',

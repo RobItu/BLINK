@@ -52,9 +52,9 @@ export default function TabLayout() {
     }}
 />
 			<Tabs.Screen
-				name="read"
+				name="TX History"
 				options={{
-					title: "Read",
+					title: "TX History",
 					tabBarIcon: ({ color, focused }) => (
 						<TabBarIcon
 							name={focused ? "reader" : "reader-outline"}

@@ -17,12 +17,14 @@
 		"@coinbase/wallet-mobile-sdk": "^1.0.13",
 		"@expo/vector-icons": "^14.1.0",
 		"@react-native-async-storage/async-storage": "^2.2.0",
+		"@react-native-clipboard/clipboard": "^1.16.2",
 		"@react-native-community/netinfo": "11.4.1",
 		"@react-navigation/native": "^7.1.6",
 		"@thirdweb-dev/react-native-adapter": "^1.5.4",
 		"@typescript-eslint/eslint-plugin": "^8.34.0",
 		"@typescript-eslint/parser": "^8.34.0",
 		"@walletconnect/react-native-compat": "^2.20.1",
+		"add": "^2.0.6",
 		"amazon-cognito-identity-js": "^6.3.15",
 		"eslint": "^9.28.0",
 		"eslint-plugin-react": "^7.37.5",
@@ -59,7 +61,8 @@
 		"react-native-web": "0.20.0",
 		"readable-stream": "^4.7.0",
 		"thirdweb": "5.96.7",
-		"ts-node": "^10.9.2"
+		"ts-node": "^10.9.2",
+		"yarn": "^1.22.22"
 	},
 	"devDependencies": {
 		"@babel/core": "^7.27.1",

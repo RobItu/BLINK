@@ -15,8 +15,36 @@ const merchants = new Map();
 // Circle API configuration
 const CIRCLE_API_KEY = process.env.CIRCLE_API_KEY;
 const CIRCLE_BASE_URL = 'https://api-sandbox.circle.com/v1';
-let CHAIN = 'AVAX';
+let CHAIN = 'AVAX'; // Default chain, can be overridden in requests
 
+// ==========================================
+// Websocket Setup
+// ==========================================
+
+const WebSocket = require('ws');
+const http = require('http');
+
+// After your app setup, before the routes, add:
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+// Store merchant connections
+const merchantConnections = new Map();
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const merchantId = url.searchParams.get('merchantId');
+  
+  if (merchantId) {
+    merchantConnections.set(merchantId, ws);
+    console.log(`📱 Merchant ${merchantId} connected via WebSocket`);
+    
+    ws.on('close', () => {
+      merchantConnections.delete(merchantId);
+      console.log(`📱 Merchant ${merchantId} disconnected`);
+    });
+  }
+});
 
 
 // ==========================================
@@ -30,6 +58,21 @@ function generateUUID() {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+async function notifyMerchant(merchantId, notificationData) {
+  console.log(`📱 Notifying merchant ${merchantId}:`, notificationData);
+  
+  const ws = merchantConnections.get(merchantId);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'payment_received',
+      ...notificationData
+    }));
+    console.log(`✅ WebSocket notification sent to ${merchantId}`);
+  } else {
+    console.log(`⚠️ No active WebSocket connection for merchant ${merchantId}`);
+  }
 }
 
 // Add this helper function after your other Circle API functions
@@ -463,6 +506,139 @@ app.get('/api/test/check-payout-status', async (req, res) => {
   }
 });
 
+// Add this to your backend
+// Add this BEFORE your webhook route
+app.use('/api/webhooks/circle', express.text({ type: 'text/plain' }));
+
+app.post('/api/webhooks/circle', async (req, res) => {
+  try {
+    const messageType = req.headers['x-amz-sns-message-type'];
+    
+    if (messageType === 'SubscriptionConfirmation') {
+      res.status(200).send('OK');
+      return;
+    }
+    
+    if (messageType === 'Notification') {
+      // Parse the SNS notification
+      const snsMessage = JSON.parse(req.body);
+      
+      // Parse the Circle data from the Message field
+      const circleData = JSON.parse(snsMessage.Message);
+      
+      console.log('📨 Circle webhook received:', circleData);
+      
+      // Extract transfer data from Circle notification
+      if (circleData.notificationType === 'transfers' && circleData.transfer) {
+        const transfer = circleData.transfer;
+        
+        // Check if this is a deposit (incoming transfer from blockchain)
+        if (transfer.source && transfer.source.type === 'blockchain') {
+          console.log('💰 USDC deposit detected!');
+          console.log(`Amount: ${transfer.amount.amount} ${transfer.amount.currency}`);
+          console.log(`To address: ${transfer.destination.address}`);
+          console.log(`Status: ${transfer.status}`);
+          
+          // Find which merchant this belongs to
+          const merchant = findMerchantByDepositAddress(transfer.destination.address);
+          
+          if (merchant) {
+            console.log(`✅ Deposit for merchant: ${merchant.id}`);
+            
+            // Notify the merchant via WebSocket
+            await notifyMerchant(merchant.id, {
+              type: 'deposit_received',
+              amount: transfer.amount.amount,
+              currency: transfer.amount.currency,
+              status: transfer.status,
+              transactionHash: transfer.transactionHash,
+              sourceChain: transfer.source.chain,
+              timestamp: transfer.createDate
+            });
+            
+            // If status is 'complete', trigger payout
+            if (transfer.status === 'complete') {
+              await triggerAutomaticPayout(merchant, transfer.amount.amount);
+            }
+          } else {
+            console.log('⚠️ No merchant found for deposit address:', transfer.destination.address);
+          }
+        }
+      }
+    }
+    
+    res.status(200).send('OK');
+  } catch (error) {
+    console.error('❌ Webhook error:', error);
+    res.status(200).send('OK'); // Always return 200 to SNS
+  }
+});
+
+// // Use this to handle Circle webhooks and confirming subscriptions
+// app.use('/api/webhooks/circle', express.text({ type: 'text/plain' }));
+
+// app.post('/api/webhooks/circle', async (req, res) => {
+//   try {
+//     console.log('📨 Raw request body:', req.body);
+//     console.log('📨 Message type:', req.headers['x-amz-sns-message-type']);
+    
+//     if (req.headers['x-amz-sns-message-type'] === 'SubscriptionConfirmation') {
+//       const message = JSON.parse(req.body);
+//       console.log('🔗 Subscription URL:', message.SubscribeURL);
+      
+//       // You need to visit this URL to confirm the subscription
+//       // Or make a GET request to it programmatically
+      
+//       res.status(200).send('OK');
+//     } else {
+//       // Handle normal webhook data
+//       const data = JSON.parse(req.body);
+//       console.log('📨 Circle webhook:', data);
+//       res.status(200).json({ received: true });
+//     }
+//   } catch (error) {
+//     console.error('❌ Webhook error:', error);
+//     res.status(200).send('OK'); // Always return 200 to SNS
+//   }
+// });
+
+// Helper function to find merchant by deposit address
+function findMerchantByDepositAddress(address) {
+  for (const [merchantId, merchant] of merchants.entries()) {
+    if (merchant.depositAddress === address) {
+      return merchant;
+    }
+  }
+  return null;
+}
+
+// Function to trigger automatic payout
+async function triggerAutomaticPayout(merchant, amount) {
+  try {
+    console.log(`💸 Triggering automatic payout for merchant ${merchant.id}`);
+    
+    // Use your existing payout logic
+    const response = await fetch('https://api-sandbox.circle.com/v1/businessAccount/payouts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CIRCLE_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        idempotencyKey: generateUUID(),
+        destination: { type: 'wire', id: merchant.bankAccountId },
+        amount: { amount: amount, currency: 'USD' }
+      })
+    });
+    
+    const data = await response.json();
+    console.log('✅ Automatic payout initiated:', data);
+    
+  } catch (error) {
+    console.error('❌ Automatic payout failed:', error);
+  }
+}
+
 // ==========================================
 // ERROR HANDLING
 // ==========================================
@@ -479,7 +655,7 @@ app.use((err, req, res, next) => {
 // ==========================================
 const PORT = process.env.PORT || 3000; // Fixed to 3000
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log('🚀 BLINK Backend with Circle Integration started!');
   console.log(`📡 Server running on port ${PORT}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);

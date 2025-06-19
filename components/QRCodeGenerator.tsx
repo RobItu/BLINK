@@ -7,7 +7,7 @@ import { SUPPORTED_NETWORKS } from '../types/transaction';
 import { BankDetailsModal } from './BankDetailsModal';
 import { bankStorageService, BankDetails } from '../services/BankStorageService';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL; // Ngrok URL or local backend
+const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"; // Ngrok URL or local backend
 
 interface QRCodeGeneratorProps {
   connectedWalletAddress?: string;
@@ -47,6 +47,8 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [qrSize, setQrSize] = useState<number>(200);
   const [desiredNetwork, setDesiredNetwork] = useState<string>('Ethereum');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const [paymentReceived, setPaymentReceived] = useState(false);
+  const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
   
   // Bank workflow state
   const [showBankModal, setShowBankModal] = useState(false);
@@ -58,6 +60,68 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
       setSellerWalletAddress(connectedWalletAddress);
     }
   }, [connectedWalletAddress]);
+
+useEffect(() => {
+  // Only connect WebSocket when expecting USD payments and wallet is connected
+  if (currencyType === 'USD' && connectedWalletAddress && circleDepositAddress) {
+    // Don't create new connection if one already exists
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      return;
+    }
+    
+    const wsUrl = `${API_BASE.replace('https', 'wss')}?merchantId=${connectedWalletAddress}`;
+    
+    console.log('🔌 Connecting to WebSocket:', wsUrl);
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected');
+      setWsConnection(ws);
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📨 WebSocket message:', data);
+        
+        if (data.type === 'deposit_received') {
+          setPaymentReceived(true);
+          Alert.alert(
+            '💰 Payment Received!',
+            `$${data.amount} received and will be converted to USD in your bank account.`,
+            [{ text: 'Great!', onPress: () => setPaymentReceived(false) }]
+          );
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    ws.onclose = () => {
+      console.log('🔌 WebSocket disconnected');
+      setWsConnection(null);
+    };
+    
+    // Cleanup function
+    return () => {
+      console.log('🧹 Cleaning up WebSocket connection');
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  } else {
+    // Close connection if switching away from USD
+    if (wsConnection) {
+      console.log('🔌 Closing WebSocket (not USD payment)');
+      wsConnection.close();
+      setWsConnection(null);
+    }
+  }
+}, [currencyType, connectedWalletAddress, circleDepositAddress, wsConnection]);
 
   // Currency toggle handler with bank workflow
   const handleCurrencyToggle = async (newCurrencyType: CurrencyType) => {
@@ -192,200 +256,214 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
 };
   
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Generate Payment QR Code</Text>
-      
-      {/* Wallet Connection Status */}
-      <View style={styles.walletStatusContainer}>
-        {isWalletConnected ? (
-          <View style={styles.connectedStatus}>
-            <Text style={styles.connectedText}>✅ Wallet Connected</Text>
-            <Text style={styles.walletAddressText}>
-              {connectedWalletAddress?.slice(0, 6)}...{connectedWalletAddress?.slice(-4)}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.disconnectedStatus}>
-            <Text style={styles.disconnectedText}>❌ No Wallet Connected</Text>
-            <Text style={styles.statusSubtext}>Connect a wallet to auto-fill seller address</Text>
-          </View>
-        )}
-      </View>
-      
-      <View style={styles.formContainer}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Destination Network</Text>
-          <View style={styles.dropdownContainer}>
-            <TouchableOpacity 
-              style={styles.dropdownButton}
-              onPress={() => setIsDropdownOpen(!isDropdownOpen)}
-            >
-              <View style={styles.selectedContainer}>
-                {selectedNetwork && (
-                  <Image source={selectedNetwork.icon} style={styles.networkIcon} />
-                )}
-                <Text style={styles.selectedText}>
-                  {selectedNetwork ? selectedNetwork.name : 'Select Network'}
-                </Text>
-              </View>
-              <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
-            </TouchableOpacity>
-
-            {isDropdownOpen && (
-              <View style={styles.dropdown}>
-                {NETWORK_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option.name}
-                    style={[
-                      styles.dropdownItem,
-                      desiredNetwork === option.name && styles.selectedItem
-                    ]}
-                    onPress={() => handleNetworkSelect(option.name)}
-                  >
-                    <View style={styles.dropdownItemContainer}>
-                      <Image source={option.icon} style={styles.networkIcon} />
-                      <Text style={[
-                        styles.dropdownItemText,
-                        desiredNetwork === option.name && styles.selectedItemText
-                      ]}>
-                        {option.name}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
+  <ScrollView contentContainerStyle={styles.container}>
+    <Text style={styles.title}>Generate Payment QR Code</Text>
+    
+    {/* Wallet Connection Status */}
+    <View style={styles.walletStatusContainer}>
+      {isWalletConnected ? (
+        <View style={styles.connectedStatus}>
+          <Text style={styles.connectedText}>✅ Wallet Connected</Text>
+          <Text style={styles.walletAddressText}>
+            {connectedWalletAddress?.slice(0, 6)}...{connectedWalletAddress?.slice(-4)}
+          </Text>
         </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Item/Service Name</Text>
-          <TextInput
-            style={styles.textInput}
-            value={itemName}
-            onChangeText={setItemName}
-            placeholder="e.g. Lemonade, Coffee, Haircut"
-            placeholderTextColor="#999"
-            maxLength={30}
-          />
-          <Text style={styles.characterCount}>{itemName.length}/30</Text>
+      ) : (
+        <View style={styles.disconnectedStatus}>
+          <Text style={styles.disconnectedText}>❌ No Wallet Connected</Text>
+          <Text style={styles.statusSubtext}>Connect a wallet to auto-fill seller address</Text>
         </View>
-        
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Amount</Text>
-          <TextInput
-            style={styles.textInput}
-            value={amount}
-            onChangeText={setAmount}
-            placeholder="0.00"
-            placeholderTextColor="#999"
-            keyboardType="decimal-pad"
-          />
-        </View>
-        
-        <View style={styles.inputGroup}>
-          <View style={styles.labelContainer}>
-            <Text style={styles.inputLabel}>Seller Wallet Address</Text>
-            {isWalletConnected && sellerWalletAddress !== connectedWalletAddress && (
-              <TouchableOpacity onPress={handleUseConnectedWallet}>
-                <Text style={styles.autofillLink}>Use connected wallet</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <TextInput
-            style={[
-              styles.textInput,
-              sellerWalletAddress === connectedWalletAddress && styles.connectedInput
-            ]}
-            value={sellerWalletAddress}
-            onChangeText={setSellerWalletAddress}
-            placeholder="0x..."
-            placeholderTextColor="#999"
-          />
-        </View>
-        
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Memo (Optional)</Text>
-          <TextInput
-            style={styles.textInput}
-            value={memo}
-            onChangeText={setmemo}
-            placeholder="Add a note or memo"
-            placeholderTextColor="#999"
-            maxLength={20}
-          />
-          <Text style={styles.characterCount}>{memo.length}/20</Text>
-        </View>
-        
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Currency</Text>
-          <View style={styles.currencySelector}>
-            <TouchableOpacity 
-              style={[styles.currencyButton, currencyType === 'USDC' && styles.selectedCurrency]}
-              onPress={() => handleCurrencyToggle('USDC')}
-            >
-              <Text style={[styles.currencyText, currencyType === 'USDC' && styles.selectedText]}>
-                USDC
+      )}
+    </View>
+    
+    <View style={styles.formContainer}>
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Destination Network</Text>
+        <View style={styles.dropdownContainer}>
+          <TouchableOpacity 
+            style={styles.dropdownButton}
+            onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+          >
+            <View style={styles.selectedContainer}>
+              {selectedNetwork && (
+                <Image source={selectedNetwork.icon} style={styles.networkIcon} />
+              )}
+              <Text style={styles.selectedText}>
+                {selectedNetwork ? selectedNetwork.name : 'Select Network'}
               </Text>
-              <Text style={styles.currencySubtext}>Receive crypto</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.currencyButton, currencyType === 'USD' && styles.selectedCurrency]}
-              onPress={() => handleCurrencyToggle('USD')}
-            >
-              <Text style={[styles.currencyText, currencyType === 'USD' && styles.selectedText]}>
-                USD (Fiat)
-              </Text>
-              <Text style={styles.currencySubtext}>Auto-convert to bank</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+            <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
+          {isDropdownOpen && (
+            <View style={styles.dropdown}>
+              {NETWORK_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.name}
+                  style={[
+                    styles.dropdownItem,
+                    desiredNetwork === option.name && styles.selectedItem
+                  ]}
+                  onPress={() => handleNetworkSelect(option.name)}
+                >
+                  <View style={styles.dropdownItemContainer}>
+                    <Image source={option.icon} style={styles.networkIcon} />
+                    <Text style={[
+                      styles.dropdownItemText,
+                      desiredNetwork === option.name && styles.selectedItemText
+                    ]}>
+                      {option.name}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </View>
-      
-      <View style={styles.previewContainer}>
-        <TouchableOpacity 
-  style={styles.currencyButton} 
-  onPress={deleteBankDetails}
->
-  <Text>DEBUG: Delete Bank Details</Text>
-</TouchableOpacity>
-        <Text style={styles.previewTitle}>Preview</Text>
-        <Text style={styles.previewText}>For: {itemName}</Text>
-        <Text style={styles.previewText}>Amount: {amount} {currencyType}</Text>
-        <Text style={styles.previewText}>
-          Seller: {getRecipientAddress() ? 
-            `${getRecipientAddress().slice(0, 6)}...${getRecipientAddress().slice(-4)}` : 
-            'Not set'
-          }
-        </Text>
-        {memo && <Text style={styles.previewText}>Memo: {memo}</Text>}
-        {currencyType === 'USD' && (
-          <Text style={styles.previewText}>💰 Will auto-convert to USD in your bank</Text>
-        )}
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Item/Service Name</Text>
+        <TextInput
+          style={styles.textInput}
+          value={itemName}
+          onChangeText={setItemName}
+          placeholder="e.g. Lemonade, Coffee, Haircut"
+          placeholderTextColor="#999"
+          maxLength={30}
+        />
+        <Text style={styles.characterCount}>{itemName.length}/30</Text>
       </View>
       
-      <View style={styles.qrContainer}>
-        <QRCode
-          value={qrData}
-          size={qrSize}
-          color="black"
-          backgroundColor="white"
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Amount</Text>
+        <TextInput
+          style={styles.textInput}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0.00"
+          placeholderTextColor="#999"
+          keyboardType="decimal-pad"
         />
       </View>
       
-      <Text style={styles.instructionText}>
-        Have the customer scan this QR code to proceed with payment
-      </Text>
+      <View style={styles.inputGroup}>
+        <View style={styles.labelContainer}>
+          <Text style={styles.inputLabel}>Seller Wallet Address</Text>
+          {isWalletConnected && sellerWalletAddress !== connectedWalletAddress && (
+            <TouchableOpacity onPress={handleUseConnectedWallet}>
+              <Text style={styles.autofillLink}>Use connected wallet</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <TextInput
+          style={[
+            styles.textInput,
+            sellerWalletAddress === connectedWalletAddress && styles.connectedInput
+          ]}
+          value={sellerWalletAddress}
+          onChangeText={setSellerWalletAddress}
+          placeholder="0x..."
+          placeholderTextColor="#999"
+        />
+      </View>
       
-      {/* Bank Details Modal */}
-      <BankDetailsModal
-        visible={showBankModal}
-        onClose={() => setShowBankModal(false)}
-        onSave={handleBankSave}
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Memo (Optional)</Text>
+        <TextInput
+          style={styles.textInput}
+          value={memo}
+          onChangeText={setmemo}
+          placeholder="Add a note or memo"
+          placeholderTextColor="#999"
+          maxLength={20}
+        />
+        <Text style={styles.characterCount}>{memo.length}/20</Text>
+      </View>
+      
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Currency</Text>
+        <View style={styles.currencySelector}>
+          <TouchableOpacity 
+            style={[styles.currencyButton, currencyType === 'USDC' && styles.selectedCurrency]}
+            onPress={() => handleCurrencyToggle('USDC')}
+          >
+            <Text style={[styles.currencyText, currencyType === 'USDC' && styles.selectedText]}>
+              USDC
+            </Text>
+            <Text style={styles.currencySubtext}>Receive crypto</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.currencyButton, currencyType === 'USD' && styles.selectedCurrency]}
+            onPress={() => handleCurrencyToggle('USD')}
+          >
+            <Text style={[styles.currencyText, currencyType === 'USD' && styles.selectedText]}>
+              USD (Fiat)
+            </Text>
+            <Text style={styles.currencySubtext}>Auto-convert to bank</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+    
+    <View style={[styles.previewContainer, paymentReceived && styles.paymentReceivedContainer]}>
+      <TouchableOpacity 
+        style={styles.currencyButton} 
+        onPress={deleteBankDetails}
+      >
+        <Text>DEBUG: Delete Bank Details</Text>
+      </TouchableOpacity>
+      
+      {paymentReceived && (
+        <View style={styles.paymentSuccessIndicator}>
+          <Text style={styles.paymentSuccessText}>✅ Payment Received!</Text>
+        </View>
+      )}
+      
+      <Text style={styles.previewTitle}>Preview</Text>
+      <Text style={styles.previewText}>For: {itemName}</Text>
+      <Text style={styles.previewText}>Amount: {amount} {currencyType}</Text>
+      <Text style={styles.previewText}>
+        Seller: {getRecipientAddress() ? 
+          `${getRecipientAddress().slice(0, 6)}...${getRecipientAddress().slice(-4)}` : 
+          'Not set'
+        }
+      </Text>
+      {memo && <Text style={styles.previewText}>Memo: {memo}</Text>}
+      {currencyType === 'USD' && (
+        <Text style={styles.previewText}>💰 Will auto-convert to USD in your bank</Text>
+      )}
+      
+      {/* WebSocket connection status for USD payments */}
+      {currencyType === 'USD' && connectedWalletAddress && (
+        <Text style={styles.connectionStatus}>
+          {wsConnection ? '🟢 Watching for payments...' : '🔴 Connecting...'}
+        </Text>
+      )}
+    </View>
+    
+    <View style={styles.qrContainer}>
+      <QRCode
+        value={qrData}
+        size={qrSize}
+        color="black"
+        backgroundColor="white"
       />
-    </ScrollView>
-  );
+    </View>
+    
+    <Text style={styles.instructionText}>
+      Have the customer scan this QR code to proceed with payment
+    </Text>
+    
+    {/* Bank Details Modal */}
+    <BankDetailsModal
+      visible={showBankModal}
+      onClose={() => setShowBankModal(false)}
+      onSave={handleBankSave}
+    />
+  </ScrollView>
+);
 };
 
 const { width } = Dimensions.get('window');
@@ -631,4 +709,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
+  paymentReceivedContainer: {
+  borderColor: '#4caf50',
+  borderWidth: 2,
+  backgroundColor: '#f8fff8',
+},
+paymentSuccessIndicator: {
+  backgroundColor: '#4caf50',
+  padding: 10,
+  borderRadius: 8,
+  marginBottom: 10,
+  alignItems: 'center',
+},
+paymentSuccessText: {
+  color: '#fff',
+  fontSize: 16,
+  fontWeight: 'bold',
+},
+connectionStatus: {
+  fontSize: 12,
+  color: '#666',
+  textAlign: 'center',
+  marginTop: 8,
+  fontStyle: 'italic',
+},
 });

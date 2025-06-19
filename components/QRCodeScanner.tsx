@@ -1,3 +1,6 @@
+// QRCodeScanner.tsx
+// This component uses Expo Camera to scan QR codes and handle transaction data.
+
 import { CameraView, CameraType, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';

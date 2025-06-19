@@ -1,4 +1,7 @@
-// server.js - Cleaned BLINK Backend with Circle Integration
+// BLINK Backend with Circle Integration
+// This server handles Circle deposit address creation, merchant management, and WebSocket notifications
+// Circle functions documentation: https://developers.circle.com/circle-mint/
+
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -385,55 +388,6 @@ app.get('/api/circle/deposit-addresses', async (req, res) => {
     });
   }
 });
-
-// Test bank account creation (direct Circle call)
-// app.post('/api/test/create-bank', async (req, res) => {
-//   try {
-//     console.log('🧪 Creating bank account with user details...');
-    
-//     const { bankDetails } = req.body; // Get bank details from request
-    
-//     if (!bankDetails) {
-//       return res.status(400).json({
-//         success: false,
-//         error: 'Bank details are required'
-//       });
-//     }
-    
-//     const url = 'https://api-sandbox.circle.com/v1/businessAccount/banks/wires';
-//     const options = {
-//       method: 'POST',
-//       headers: {
-//         Authorization: `Bearer ${CIRCLE_API_KEY}`,
-//         'Content-Type': 'application/json'
-//       },
-//       body: JSON.stringify({
-//         bankAddress: bankDetails.bankAddress,          // Use user data
-//         billingDetails: bankDetails.billingDetails,    // Use user data
-//         routingNumber: bankDetails.routingNumber,      // Use user data
-//         accountNumber: bankDetails.accountNumber,      // Use user data
-//         idempotencyKey: generateUUID()                 // Generate random UUID
-//       })
-//     };
-    
-//     const response = await fetch(url, options);
-//     const json = await response.json();
-    
-//     console.log('✅ Bank account created with user details:', json);
-    
-//     res.json({
-//       success: true,
-//       circleResponse: json
-//     });
-    
-//   } catch (error) {
-//     console.error('❌ Bank creation failed:', error);
-//     res.status(500).json({
-//       success: false,
-//       error: error.message
-//     });
-//   }
-// });
 
 app.post('/api/test/create-bank', async (req, res) => {
   try {

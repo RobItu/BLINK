@@ -18,15 +18,18 @@ export interface AcceptedNetwork {
   tokens: AcceptedToken[];
 }
 
+
 export interface TransactionData {
+  id: string;
   for: string;
   amount: string;
-  currency: string;
+  currency: CurrencyType;
+  sellerWalletAddress: string;
   timestamp: number;
-  id: string;
-  sellerWalletAddress?: string; 
   memo?: string;
-  network?: string; // Network name for the transaction   
+  network?: string;
+  merchantId?: string;
+  isCirclePayment?: boolean; // Add this line
 }
 // Predefined network configurations
 export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
@@ -182,4 +185,6 @@ export const createTransaction = (
     sellerWalletAddress,
     memo: memo || '',
   };
+
+  
 };

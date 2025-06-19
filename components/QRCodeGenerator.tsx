@@ -6,6 +6,7 @@ import { createTransaction, CurrencyType, TransactionData } from '../types/trans
 import { SUPPORTED_NETWORKS } from '../types/transaction';
 import { BankDetailsModal } from './BankDetailsModal';
 import { bankStorageService, BankDetails } from '../services/BankStorageService';
+import { transactionStorageService } from '../services/TransactionStorageService';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"; // Ngrok URL or local backend
 
@@ -53,6 +54,14 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   // Bank workflow state
   const [showBankModal, setShowBankModal] = useState(false);
   const [circleDepositAddress, setCircleDepositAddress] = useState<string | null>(null);
+
+  const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
   
   // Auto-populate seller wallet address when wallet connects
   useEffect(() => {
@@ -79,12 +88,28 @@ useEffect(() => {
       setWsConnection(ws);
     };
     
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('📨 WebSocket message:', data);
         
-        if (data.type === 'deposit_received') {
+        if (data.type === 'deposit_received' && data.status === 'complete') {
+            await transactionStorageService.addTransaction(connectedWalletAddress!, {
+    id: data.transactionHash,
+    type: 'received',
+    amount: data.amount,
+    currency: currencyType,
+    itemName: `Circle Deposit for ${itemName}`,
+    memo: memo,
+    network: data.sourceChain,
+    transactionHash: data.transactionHash,
+    fromAddress: '', // Circle doesn't provide sender
+    toAddress: circleDepositAddress!,
+    timestamp: Date.now(),
+    status: data.status === 'complete' ? 'complete' : 'pending',
+    isCirclePayment: true
+  });
+          
           setPaymentReceived(true);
           Alert.alert(
             '💰 Payment Received!',

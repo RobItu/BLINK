@@ -175,22 +175,27 @@ useEffect(() => {
 };
 
   // Bank save handler
-  const handleBankSave = async (bankDetails: BankDetails) => {
+ const handleBankSave = async (bankDetails: BankDetails) => {
   try {
     // Save to AsyncStorage
     await bankStorageService.saveBankDetails(connectedWalletAddress || '', bankDetails);
     
-    // Call create-bank API with user's bank details
+    // Create bank account AND store bank ID in one call
     const response = await fetch(`${API_BASE}/api/test/create-bank`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bankDetails })  // Send user's details
+      body: JSON.stringify({ 
+        bankDetails,
+        merchantId: connectedWalletAddress // Pass merchant ID
+      })
     });
     
     const data = await response.json();
     if (data.success) {
       setCurrencyType('USD');
-      console.log('Bank account linked successfully');
+      console.log('Bank account linked successfully with ID:', data.bankAccountId);
+    } else {
+      console.error('Failed to create bank account:', data.error);
     }
   } catch (error) {
     console.error('Failed to save bank details:', error);

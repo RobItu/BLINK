@@ -387,16 +387,64 @@ app.get('/api/circle/deposit-addresses', async (req, res) => {
 });
 
 // Test bank account creation (direct Circle call)
+// app.post('/api/test/create-bank', async (req, res) => {
+//   try {
+//     console.log('🧪 Creating bank account with user details...');
+    
+//     const { bankDetails } = req.body; // Get bank details from request
+    
+//     if (!bankDetails) {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Bank details are required'
+//       });
+//     }
+    
+//     const url = 'https://api-sandbox.circle.com/v1/businessAccount/banks/wires';
+//     const options = {
+//       method: 'POST',
+//       headers: {
+//         Authorization: `Bearer ${CIRCLE_API_KEY}`,
+//         'Content-Type': 'application/json'
+//       },
+//       body: JSON.stringify({
+//         bankAddress: bankDetails.bankAddress,          // Use user data
+//         billingDetails: bankDetails.billingDetails,    // Use user data
+//         routingNumber: bankDetails.routingNumber,      // Use user data
+//         accountNumber: bankDetails.accountNumber,      // Use user data
+//         idempotencyKey: generateUUID()                 // Generate random UUID
+//       })
+//     };
+    
+//     const response = await fetch(url, options);
+//     const json = await response.json();
+    
+//     console.log('✅ Bank account created with user details:', json);
+    
+//     res.json({
+//       success: true,
+//       circleResponse: json
+//     });
+    
+//   } catch (error) {
+//     console.error('❌ Bank creation failed:', error);
+//     res.status(500).json({
+//       success: false,
+//       error: error.message
+//     });
+//   }
+// });
+
 app.post('/api/test/create-bank', async (req, res) => {
   try {
     console.log('🧪 Creating bank account with user details...');
     
-    const { bankDetails } = req.body; // Get bank details from request
+    const { bankDetails, merchantId } = req.body; // Add merchantId to request
     
-    if (!bankDetails) {
+    if (!bankDetails || !merchantId) {
       return res.status(400).json({
         success: false,
-        error: 'Bank details are required'
+        error: 'Bank details and merchant ID are required'
       });
     }
     
@@ -408,23 +456,49 @@ app.post('/api/test/create-bank', async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        bankAddress: bankDetails.bankAddress,          // Use user data
-        billingDetails: bankDetails.billingDetails,    // Use user data
-        routingNumber: bankDetails.routingNumber,      // Use user data
-        accountNumber: bankDetails.accountNumber,      // Use user data
-        idempotencyKey: generateUUID()                 // Generate random UUID
+        bankAddress: bankDetails.bankAddress,
+        billingDetails: bankDetails.billingDetails,
+        routingNumber: bankDetails.routingNumber,
+        accountNumber: bankDetails.accountNumber,
+        idempotencyKey: generateUUID()
       })
     };
     
     const response = await fetch(url, options);
     const json = await response.json();
     
-    console.log('✅ Bank account created with user details:', json);
-    
-    res.json({
-      success: true,
-      circleResponse: json
-    });
+    if (json.data?.id) {
+      // Store bank ID in merchants Map immediately
+      let merchant = merchants.get(merchantId);
+      if (!merchant) {
+        merchant = {
+          id: merchantId,
+          bankAccountId: json.data.id,
+          createdAt: new Date()
+        };
+      } else {
+        merchant.bankAccountId = json.data.id;
+      }
+      
+      merchants.set(merchantId, merchant);
+      
+      console.log('✅ Bank account created and ID stored:', json.data.id);
+      console.log('✅ Merchant updated with bank ID:', merchantId);
+      
+      res.json({
+        success: true,
+        circleResponse: json,
+        bankAccountId: json.data.id,
+        message: 'Bank account created and linked successfully'
+      });
+    } else {
+      console.error('❌ No bank ID in Circle response:', json);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create bank account',
+        circleResponse: json
+      });
+    }
     
   } catch (error) {
     console.error('❌ Bank creation failed:', error);
@@ -616,12 +690,13 @@ function findMerchantByDepositAddress(address) {
 async function triggerAutomaticPayout(merchant, amount) {
   try {
     console.log(`💸 Triggering automatic payout for merchant ${merchant.id}`);
+    console.log(`bankAccountId: ${merchant.bankAccountId}, amount: ${amount}`);
     
     // Use your existing payout logic
     const response = await fetch('https://api-sandbox.circle.com/v1/businessAccount/payouts', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${CIRCLE_API_KEY}`,
+        Authorization: `Bearer ${CIRCLE_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({

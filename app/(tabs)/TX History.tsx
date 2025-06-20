@@ -141,7 +141,7 @@ export default function TransactionHistoryScreen() {
       {item.transactionHash && (
         <View style={styles.hashContainer}>
           <Text style={styles.hashLabel}>Transaction Hash:</Text>
-          <Text style={styles.hashText}>{formatAddress(item.transactionHash)}</Text>
+          <Text style={styles.hashText}>{item.transactionHash}</Text>
         </View>
       )}
       

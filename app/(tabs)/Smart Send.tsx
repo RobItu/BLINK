@@ -350,7 +350,7 @@ Proceed?`,
         sendTransaction: (tx: any, callbacks: any) => {
           sendTransaction(tx, {
             onSuccess: (result: any) => {
-              handlePaymentSuccess(result, sendAmount, usdValue, isCrossChain);
+              handlePaymentSuccess(result, sendAmount, usdValue, selectedToken, isCrossChain);
               callbacks.onSuccess?.(result);
             },
             onError: (error: any) => {
@@ -367,15 +367,15 @@ Proceed?`,
     }
   };
 
-  const handlePaymentSuccess = async (result: any, sendAmount: string, usdValue: string, isCrossChain: boolean) => {
+  const handlePaymentSuccess = async (result: any, sendAmount: string, usdValue: string, currency: string, isCrossChain: boolean) => {
     const transactionHash = result.transactionHash;
 
     await transactionStorageService.addTransaction(account?.address!, {
       id: generateUUID(),
       type: 'sent',
       amount: usdValue,
-      currency: 'USDC',
-      itemName: `Smart Send → ${receivedToken}`,
+      currency: currency,
+      itemName: `Smart Send → ${selectedToken} → ${receivedToken}`,
       memo: memo || undefined,
       network: selectedNetwork,
       transactionHash: result.transactionHash,
@@ -393,7 +393,7 @@ Proceed?`,
 You sent: ${sendAmount} ${selectedToken}
 Recipient will receive: ${receivedToken} on ${destinationNetwork}
 
-Hash: ${transactionHash.slice(0, 8)}...${transactionHash.slice(-6)}`,
+Hash: ${transactionHash}`,
       [
         { text: 'Done', onPress: () => {
           setRecipientAddress('');

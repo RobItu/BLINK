@@ -357,12 +357,14 @@ const BLINK_CONTRACT_ABI = [
 // BLINK Contract Configuration
 const BLINK_CONTRACT_ADDRESSES: Record<string, string> = {
   'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
-  'Sepolia': '0xE220b9356fc15395dAf0037761bc8078dB39842b',
+ 'Sepolia': '0x84c527b656c7363EF29854577430275189495eCc',
+ 'Base Sepolia': '0x5bA3f8DBF87F22f294D466b9CCd5E370E0464572',
 };
 
 const CHAIN_SELECTORS: Record<string, string> = {
   'Sepolia': '16015286601757825753',
   'Avalanche Fuji': '14767482510784806043',
+  'Base Sepolia': '10344971235874465080',
 };
 
 const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
@@ -373,12 +375,13 @@ const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
   'Avalanche Fuji': {
     'USDC': '0x5425890298aed601595a70AB815c96711a31Bc65',
     'AVAX': '0x0000000000000000000000000000000000000000',
-	'GUN': '0x26deBD39D5eD069770406FCa10A0E4f8d2c743eB',
+	'LTX': '0x26deBD39D5eD069770406FCa10A0E4f8d2c743eB',
   },
   'Base Sepolia': {
 	'USDC': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
 	'ETH': '0x0000000000000000000000000000000000000000',
 	'cbBTC': '0xcbB7C0006F23900c38EB856149F799620fcb8A4a',
+	'WETH': '0x4200000000000000000000000000000000000006',
   },
 };
 
@@ -471,19 +474,7 @@ export class BlinkPaymentService {
     });
     console.log('Token balance info:', tokenBalance);
 
-    // 🐛 DEBUG: Log what we're sending to the contract
-    console.log('🚀 BLINK Payment Debug:');
-    console.log('Contract address:', contractAddress);
-    console.log('Required amount (original):', requiredAmount);
-    console.log('Payment params being sent:', {
-      tokenIn: paymentParams.tokenIn,
-      amountIn: paymentParams.amountIn.toString(),
-      tokenOut: paymentParams.tokenOut,
-      receiver: paymentParams.receiver,
-      destinationChain: paymentParams.destinationChain.toString(),
-      minAmountOut: paymentParams.minAmountOut.toString(),
-    });
-    console.log('Token balance info:', tokenBalance);
+
 
     if (tokenBalance.contractAddress) {
       // ERC20 - Two step process

@@ -5,7 +5,7 @@ export interface StoredTransaction {
   id: string;
   type: 'sent' | 'received';
   amount: string;
-  currency: 'USDC' | 'USD';
+  currency: string;
   itemName: string;
   memo?: string;
   network: string;

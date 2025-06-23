@@ -329,43 +329,44 @@ Proceed?`,
   };
 
   const executePayment = async (tokenBalance: TokenBalance, sendAmount: string, usdValue: string, isCrossChain: boolean) => {
-    if (!account?.address || !selectedChainObject) return;
-    
-    setSendingTransaction(true);
-    
-    try {
-      await BlinkPaymentService.executePayment({
-        client,
-        sourceNetwork: selectedNetwork,
-        destinationNetwork: destinationNetwork,
-        selectedChain: selectedChainObject,
-        userAddress: account.address,
-        sellerAddress: recipientAddress,
-        tokenBalance: {
-          symbol: tokenBalance.symbol,
-          contractAddress: tokenBalance.contractAddress,
-          balance: tokenBalance.balance,
-        },
-        requiredAmount: sendAmount,
-        sendTransaction: (tx: any, callbacks: any) => {
-          sendTransaction(tx, {
-            onSuccess: (result: any) => {
-              handlePaymentSuccess(result, sendAmount, usdValue, selectedToken, isCrossChain);
-              callbacks.onSuccess?.(result);
-            },
-            onError: (error: any) => {
-              handlePaymentError(error);
-              callbacks.onError?.(error);
-            },
-          });
-        },
-      });
-    } catch (error) {
-      console.error('Payment error:', error);
-      Alert.alert('Error', 'Failed to process payment');
-      setSendingTransaction(false);
-    }
-  };
+  if (!account?.address || !selectedChainObject) return;
+  
+  setSendingTransaction(true);
+  
+  try {
+    await BlinkPaymentService.executePayment({
+      client,
+      sourceNetwork: selectedNetwork,
+      destinationNetwork: destinationNetwork,
+      selectedChain: selectedChainObject,
+      userAddress: account.address,
+      sellerAddress: recipientAddress,
+      tokenBalance: {
+        symbol: tokenBalance.symbol,
+        contractAddress: tokenBalance.contractAddress,
+        balance: tokenBalance.balance,
+      },
+      requiredAmount: sendAmount,
+      receivedTokenSymbol: receivedToken, // ← ADD THIS LINE
+      sendTransaction: (tx: any, callbacks: any) => {
+        sendTransaction(tx, {
+          onSuccess: (result: any) => {
+            handlePaymentSuccess(result, sendAmount, usdValue, selectedToken, isCrossChain);
+            callbacks.onSuccess?.(result);
+          },
+          onError: (error: any) => {
+            handlePaymentError(error);
+            callbacks.onError?.(error);
+          },
+        });
+      },
+    });
+  } catch (error) {
+    console.error('Payment error:', error);
+    Alert.alert('Error', 'Failed to process payment');
+    setSendingTransaction(false);
+  }
+};
 
   const handlePaymentSuccess = async (result: any, sendAmount: string, usdValue: string, currency: string, isCrossChain: boolean) => {
     const transactionHash = result.transactionHash;

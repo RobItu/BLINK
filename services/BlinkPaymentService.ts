@@ -1,364 +1,73 @@
-
 import { getContract, prepareTransaction, prepareContractCall } from "thirdweb";
 import { toWei } from "thirdweb/utils";
 import { transfer, approve } from "thirdweb/extensions/erc20";
 
-// Add the BLINK contract ABI
+// Updated BLINK contract ABI to match your current contract
 const BLINK_CONTRACT_ABI = [
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"internalType": "bytes32",
-						"name": "messageId",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "sourceChainSelector",
-						"type": "uint64"
-					},
-					{
-						"internalType": "bytes",
-						"name": "sender",
-						"type": "bytes"
-					},
-					{
-						"internalType": "bytes",
-						"name": "data",
-						"type": "bytes"
-					},
-					{
-						"components": [
-							{
-								"internalType": "address",
-								"name": "token",
-								"type": "address"
-							},
-							{
-								"internalType": "uint256",
-								"name": "amount",
-								"type": "uint256"
-							}
-						],
-						"internalType": "struct Client.EVMTokenAmount[]",
-						"name": "destTokenAmounts",
-						"type": "tuple[]"
-					}
-				],
-				"internalType": "struct Client.Any2EVMMessage",
-				"name": "message",
-				"type": "tuple"
-			}
-		],
-		"name": "ccipReceive",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "_ccipRouter",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "_linkToken",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "_usdcToken",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "_uniswapRouter",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "_traderJoeRouter",
-				"type": "address"
-			}
-		],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [],
-		"name": "InvalidAmount",
-		"type": "error"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "router",
-				"type": "address"
-			}
-		],
-		"name": "InvalidRouter",
-		"type": "error"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "current",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "required",
-				"type": "uint256"
-			}
-		],
-		"name": "NotEnoughBalance",
-		"type": "error"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "messageId",
-				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint64",
-				"name": "destinationChain",
-				"type": "uint64"
-			}
-		],
-		"name": "PaymentProcessed",
-		"type": "event"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"internalType": "address",
-						"name": "tokenIn",
-						"type": "address"
-					},
-					{
-						"internalType": "uint256",
-						"name": "amountIn",
-						"type": "uint256"
-					},
-					{
-						"internalType": "address",
-						"name": "tokenOut",
-						"type": "address"
-					},
-					{
-						"internalType": "address",
-						"name": "receiver",
-						"type": "address"
-					},
-					{
-						"internalType": "uint64",
-						"name": "destinationChain",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint256",
-						"name": "minAmountOut",
-						"type": "uint256"
-					}
-				],
-				"internalType": "struct BLINKPayment.PaymentParams",
-				"name": "params",
-				"type": "tuple"
-			}
-		],
-		"name": "processPayment",
-		"outputs": [
-			{
-				"internalType": "bytes32",
-				"name": "messageId",
-				"type": "bytes32"
-			}
-		],
-		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "token",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "to",
-				"type": "address"
-			}
-		],
-		"name": "withdrawToken",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"stateMutability": "payable",
-		"type": "receive"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint64",
-				"name": "destinationChain",
-				"type": "uint64"
-			},
-			{
-				"internalType": "uint256",
-				"name": "usdcAmount",
-				"type": "uint256"
-			}
-		],
-		"name": "getEstimatedFee",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getRouter",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "IS_AVALANCHE",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes4",
-				"name": "interfaceId",
-				"type": "bytes4"
-			}
-		],
-		"name": "supportsInterface",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "traderJoeRouter",
-		"outputs": [
-			{
-				"internalType": "contract ITraderJoeRouter",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "uniswapRouter",
-		"outputs": [
-			{
-				"internalType": "contract ISwapRouter",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "USDC_ADDRESS",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "WAVAX_ADDRESS",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	}
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "tokenIn",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amountIn",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "tokenOut",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "receiver",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "receiverContract",
+            "type": "address"
+          },
+          {
+            "internalType": "uint64",
+            "name": "destinationChain",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "minAmountOut",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct PaymentParams",
+        "name": "params",
+        "type": "tuple"
+      }
+    ],
+    "name": "processPayment",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "messageId",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  }
 ] as const;
 
 // BLINK Contract Configuration
 const BLINK_CONTRACT_ADDRESSES: Record<string, string> = {
-  'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
- 'Sepolia': '0x84c527b656c7363EF29854577430275189495eCc',
- 'Base Sepolia': '0x5bA3f8DBF87F22f294D466b9CCd5E370E0464572',
+//   'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
+'Avalanche Fuji': '0x963D0b5cF0E3E0D26A41461F74E2082066406c1D',
+  'Sepolia': '0x6A3D8ece4E2adcb09f4C5A644fA6FD515f2F445B',
+  'Base Sepolia': '0xDb8ABe917773D4486154E5b4FCd7Ddb8EFdbCBb2',
 };
 
 const CHAIN_SELECTORS: Record<string, string> = {
@@ -367,21 +76,23 @@ const CHAIN_SELECTORS: Record<string, string> = {
   'Base Sepolia': '10344971235874465080',
 };
 
+// Updated token addresses to include native token representations
 const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
   'Sepolia': {
     'USDC': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     'ETH': '0x0000000000000000000000000000000000000000',
+    'WETH': '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // Native WETH
   },
   'Avalanche Fuji': {
     'USDC': '0x5425890298aed601595a70AB815c96711a31Bc65',
-    'AVAX': '0x0000000000000000000000000000000000000000',
-	'LTX': '0x26deBD39D5eD069770406FCa10A0E4f8d2c743eB',
+    'AVAX': '0x0000000000000000000000000000000000000000', // Native AVAX
+    'LTX': '0x26deBD39D5eD069770406FCa10A0E4f8d2c743eB',
   },
   'Base Sepolia': {
-	'USDC': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-	'ETH': '0x0000000000000000000000000000000000000000',
-	'cbBTC': '0xcbB7C0006F23900c38EB856149F799620fcb8A4a',
-	'WETH': '0x4200000000000000000000000000000000000006',
+    'USDC': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    'ETH': '0x0000000000000000000000000000000000000000', // Native ETH
+    'cbBTC': '0xcbB7C0006F23900c38EB856149F799620fcb8A4a',
+    'WETH': '0x4200000000000000000000000000000000000006',
   },
 };
 
@@ -398,6 +109,7 @@ export interface PaymentParams {
     balance: string;
   };
   requiredAmount: string;
+  receivedTokenSymbol: string; // NEW: The token symbol user wants to receive
   sendTransaction: (tx: any, callbacks: any) => void;
 }
 
@@ -427,6 +139,34 @@ export class BlinkPaymentService {
       await this.executeDirectPayment(params);
     }
   }
+  private static parseTokenAmount(amount: string, tokenSymbol: string, network: string): bigint {
+  // Get token decimals based on network and symbol
+  const decimals = this.getTokenDecimals(network, tokenSymbol);
+  const amountBigInt = BigInt(Math.floor(parseFloat(amount) * (10 ** decimals)));
+  return amountBigInt;
+}
+
+private static getTokenDecimals(network: string, tokenSymbol: string): number {
+  // Default decimals for common tokens
+  const tokenDecimals: Record<string, Record<string, number>> = {
+    'Base Sepolia': {
+      'USDC': 6,
+      'ETH': 18,
+      'WETH': 18,
+      'cbBTC': 8,
+    },
+    'Sepolia': {
+      'USDC': 6,
+      'ETH': 18,
+    },
+    'Avalanche Fuji': {
+      'USDC': 6,
+      'AVAX': 18,
+    }
+  };
+  
+  return tokenDecimals[network]?.[tokenSymbol] || 18; // Default to 18
+}
 
   private static async executeBLINKPayment(params: PaymentParams): Promise<void> {
     const {
@@ -437,46 +177,58 @@ export class BlinkPaymentService {
       sellerAddress,
       tokenBalance,
       requiredAmount,
+      receivedTokenSymbol,
       sendTransaction,
     } = params;
 
     const contractAddress = BLINK_CONTRACT_ADDRESSES[sourceNetwork];
     const destinationChainSelector = CHAIN_SELECTORS[destinationNetwork];
-    const destinationTokenAddress = TOKEN_ADDRESSES[destinationNetwork]?.['USDC'] || '0x0000000000000000000000000000000000000000';
+    const receiverContractAddress = BLINK_CONTRACT_ADDRESSES[destinationNetwork];
+
+    // Get the token addresses based on user selections
+    const tokenInAddress = this.getTokenAddress(sourceNetwork, tokenBalance.symbol);
+    const tokenOutAddress = this.getTokenAddress(destinationNetwork, receivedTokenSymbol);
 
     const blinkContract = getContract({
       client,
       chain: selectedChain,
       address: contractAddress,
-      abi: BLINK_CONTRACT_ABI, // Add the ABI here
+      abi: BLINK_CONTRACT_ABI,
     });
 
+    // Build the payment params struct matching your contract
     const paymentParams = {
-      tokenIn: tokenBalance.contractAddress || "0x0000000000000000000000000000000000000000",
-      amountIn: toWei(requiredAmount),
-      tokenOut: destinationTokenAddress,
+      tokenIn: tokenInAddress,
+      amountIn: this.parseTokenAmount(requiredAmount, tokenBalance.symbol, sourceNetwork),
+      tokenOut: tokenOutAddress,
       receiver: sellerAddress,
+      receiverContract: receiverContractAddress,
       destinationChain: BigInt(destinationChainSelector),
       minAmountOut: BigInt(0),
     };
 
+	
+
     // 🐛 DEBUG: Log what we're sending to the contract
     console.log('🚀 BLINK Payment Debug:');
-    console.log('Contract address:', contractAddress);
+    console.log('Source network:', sourceNetwork);
+    console.log('Destination network:', destinationNetwork);
+    console.log('Source contract address:', contractAddress);
+    console.log('Destination contract address:', receiverContractAddress);
     console.log('Required amount (original):', requiredAmount);
+    console.log('Token being sent:', tokenBalance.symbol);
+    console.log('Token to receive:', receivedTokenSymbol);
     console.log('Payment params being sent:', {
       tokenIn: paymentParams.tokenIn,
       amountIn: paymentParams.amountIn.toString(),
       tokenOut: paymentParams.tokenOut,
       receiver: paymentParams.receiver,
+      receiverContract: paymentParams.receiverContract,
       destinationChain: paymentParams.destinationChain.toString(),
       minAmountOut: paymentParams.minAmountOut.toString(),
     });
-    console.log('Token balance info:', tokenBalance);
 
-
-
-    if (tokenBalance.contractAddress) {
+    if (tokenBalance.contractAddress && tokenBalance.contractAddress !== '0x0000000000000000000000000000000000000000') {
       // ERC20 - Two step process
       return new Promise((resolve, reject) => {
         // Step 1: Approve
@@ -510,7 +262,7 @@ export class BlinkPaymentService {
         });
       });
     } else {
-      // Native token
+      // Native token - include value in transaction
       const paymentTransaction = prepareContractCall({
         contract: blinkContract,
         method: "processPayment",
@@ -537,7 +289,7 @@ export class BlinkPaymentService {
       sendTransaction,
     } = params;
 
-    if (tokenBalance.contractAddress) {
+    if (tokenBalance.contractAddress && tokenBalance.contractAddress !== '0x0000000000000000000000000000000000000000') {
       // ERC20 Token Transfer
       const contract = getContract({
         client,
@@ -573,5 +325,22 @@ export class BlinkPaymentService {
         });
       });
     }
+  }
+
+  // Helper method to get token address based on network and symbol
+  private static getTokenAddress(network: string, tokenSymbol: string): string {
+    const networkTokens = TOKEN_ADDRESSES[network];
+    if (!networkTokens) {
+      console.warn(`Network ${network} not found, defaulting to address(0)`);
+      return '0x0000000000000000000000000000000000000000';
+    }
+
+    const tokenAddress = networkTokens[tokenSymbol];
+    if (!tokenAddress) {
+      console.warn(`Token ${tokenSymbol} not found on ${network}, defaulting to address(0)`);
+      return '0x0000000000000000000000000000000000000000';
+    }
+
+    return tokenAddress;
   }
 }

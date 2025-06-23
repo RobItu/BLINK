@@ -287,7 +287,7 @@ const handlePaymentSuccess = async (result: any, requiredAmount: string, isCross
 💰 ${requiredAmount} ${selectedToken} ($${transactionData.amount})
 ${isCrossChain ? `📡 ${selectedNetwork} → ${transactionData.network}` : `🌐 ${selectedNetwork}`}
 
-🔗 Hash: ${transactionHash.slice(0, 8)}...${transactionHash.slice(-6)}
+🔗 Hash: ${transactionHash}
 
 ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}`,
     [
@@ -350,6 +350,7 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
               balance: tokenBalance.balance,
             },
             requiredAmount,
+            receivedTokenSymbol: 'USDC', // ← ADD THIS LINE
             sendTransaction: (tx: any, callbacks: any) => {
               sendTransaction(tx, {
                 onSuccess: (result: any) => {

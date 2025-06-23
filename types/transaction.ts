@@ -43,7 +43,23 @@ export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
       decimals: 18,
       coinGeckoId: 'ethereum'
     },
-    tokens: []
+    tokens: [{
+        symbol: 'USDC',
+        name: 'USD Coin',
+        contractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+        network: 'sepolia',
+        decimals: 6,
+        coinGeckoId: 'usd-coin'
+      },
+      {
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+        contractAddress: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
+        network: 'sepolia',
+        decimals: 6,
+        coinGeckoId: 'ethereum'
+      }]
+      
   },
   {
     name: 'Avalanche Fuji',
@@ -55,7 +71,22 @@ export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
       decimals: 18,
       coinGeckoId: 'avalanche-2'
     },
-    tokens: []
+    tokens: [{
+        symbol: 'USDC',
+        name: 'USD Coin',
+        contractAddress: '0x5425890298aed601595a70AB815c96711a31Bc65',
+        network: 'avalanche-fuji',
+        decimals: 6,
+        coinGeckoId: 'usd-coin'
+      },
+      {
+        symbol: 'LTX',
+        name: 'Coinbase Wrapped BTC',
+        contractAddress: '0xcbB7C0006F23900c38EB856149F799620fcb8A4a',
+        network: 'avalanche-fuji',
+        decimals: 8,
+        coinGeckoId: 'bitcoin'
+      }]
   },
   {
     name: 'Base Sepolia',
@@ -67,7 +98,30 @@ export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
       decimals: 18,
       coinGeckoId: 'ethereum'
     },
-    tokens: []
+    tokens: [ {
+        symbol: 'USDC',
+        name: 'USD Coin',
+        contractAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        network: 'base-sepolia',
+        decimals: 6,
+        coinGeckoId: 'usd-coin'
+      },
+      {
+        symbol: 'cbBTC',
+        name: 'Coinbase Wrapped BTC',
+        contractAddress: '0xcbB7C0006F23900c38EB856149F799620fcb8A4a',
+        network: 'base-sepolia',
+        decimals: 8,
+        coinGeckoId: 'bitcoin'
+      },
+     {
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+        contractAddress: '0x4200000000000000000000000000000000000006',
+        network: 'base-sepolia',
+        decimals: 18,
+        coinGeckoId: 'ethereum'
+      }]
   },
   {
     name: 'Ethereum',

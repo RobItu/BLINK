@@ -1,7 +1,6 @@
 // app/(tabs)/history.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Image, Alert } from 'react-native';
-import { useActiveAccount } from "thirdweb/react";
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Image, Alert, Linking } from 'react-native';import { useActiveAccount } from "thirdweb/react";
 import { transactionStorageService, StoredTransaction } from '@/services/TransactionStorageService';
 
 const getNetworkIcon = (networkName: string) => {
@@ -33,6 +32,23 @@ const getStatusIcon = (status: string) => {
     case 'failed': return '❌';
     default: return '❓';
   }
+};
+
+const getExplorerUrl = (networkName: string, txHash: string) => {
+  const explorerMap: { [key: string]: string } = {
+    'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+    'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+    'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+    'Polygon': `https://polygonscan.com/tx/${txHash}`,
+    'Ethereum': `https://etherscan.io/tx/${txHash}`,
+    'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+  };
+  return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
+};
+
+const openExplorer = (networkName: string, txHash: string) => {
+  const url = getExplorerUrl(networkName, txHash);
+  Linking.openURL(url);
 };
 
 export default function TransactionHistoryScreen() {
@@ -139,11 +155,13 @@ export default function TransactionHistoryScreen() {
       </View>
       
       {item.transactionHash && (
-        <View style={styles.hashContainer}>
-          <Text style={styles.hashLabel}>Transaction Hash:</Text>
-          <Text style={styles.hashText}>{item.transactionHash}</Text>
-        </View>
-      )}
+  <View style={styles.hashContainer}>
+    <Text style={styles.hashLabel}>Transaction Hash:</Text>
+    <TouchableOpacity onPress={() => openExplorer(item.network, item.transactionHash!)}>
+      <Text style={styles.hashTextLink}>{item.transactionHash}</Text>
+    </TouchableOpacity>
+  </View>
+)}
       
       {item.isCirclePayment && (
         <View style={styles.circleLabel}>
@@ -382,4 +400,10 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
+  hashTextLink: {
+  fontSize: 12,
+  fontFamily: 'monospace',
+  color: '#007AFF',
+  textDecorationLine: 'underline',
+},
 });

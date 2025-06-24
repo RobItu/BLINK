@@ -1,9 +1,9 @@
-import { Image, StyleSheet, View, useColorScheme } from "react-native";
+import { Image, StyleSheet, View, useColorScheme, TouchableOpacity } from "react-native";
 import { ParallaxScrollView } from "@/components/ParallaxScrollView";
 import { ThemedButton } from "@/components/ThemedButton";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
-import { QRCodeGenerator } from "@/components/QRCodeGenerator"; // Import your QR component
+import { QRCodeGenerator } from "@/components/QRCodeGenerator";
 import { chain, client } from "@/constants/thirdweb";
 import { useEffect, useState, useMemo } from "react";
 import { createAuth } from "thirdweb/auth";
@@ -35,38 +35,48 @@ const thirdwebAuth = createAuth({
 	client,
 });
 
+// Network icon helper function
+const getNetworkIcon = (networkName: string) => {
+  const iconMap: { [key: string]: any } = {
+    'Sepolia': require('../../assets/images/networks/sepolia.png'),
+    'Polygon': require('../../assets/images/networks/polygon.png'),
+    'Avalanche Fuji': require('../../assets/images/networks/avalancheFuji.png'),
+    'Base Sepolia': require('../../assets/images/networks/baseSepolia.png'),
+    'Arbitrum': require('../../assets/images/networks/arbitrum.png'),
+    'Ethereum': require('../../assets/images/networks/ethereum.png'),
+    'Avalanche': require('../../assets/images/networks/avalancheFuji.png'),
+    'USDC': require('../../assets/images/networks/tokens/USDC.png'),
+    'cbBTC': require('../../assets/images/networks/tokens/cbBTC.png'),
+    'GUN': require('../../assets/images/networks/tokens/GUN.png'),
+  };
+  return iconMap[networkName] || require('../../assets/images/networks/sepolia.png');
+};
+
 // fake login state, this should be returned from the backend
 let isLoggedIn = false;
 
 export default function HomeScreen() {
 	const [selectedChain, setSelectedChain] = useState(avalancheFuji);
 	const [showQRGenerator, setShowQRGenerator] = useState(false);
+	const [networkDropdownOpen, setNetworkDropdownOpen] = useState(false);
 	const activeWallet = useActiveWallet();
-	const account = useActiveAccount(); // This gives you the wallet address!
+	const account = useActiveAccount();
     const { disconnect } = useDisconnect();
     const { connect } = useConnect();
 	
-	const handleChainChange = async (newChain:any) => {
+	const handleChainChange = async (newChain: any) => {
         const wasConnected = !!activeWallet;
         const currentWalletId = activeWallet?.id;
         
         if (wasConnected) {
-            // Store connection info
             const connectionInfo = {
                 walletId: currentWalletId,
-                // Store any other relevant connection data
             };
             
-            // Disconnect current wallet
-            // await disconnect(activeWallet);
-            
-            // Update chain
             setSelectedChain(newChain);
             
-            // Auto-reconnect with new chain (small delay to ensure state updates)
             setTimeout(async () => {
                 if (connectionInfo.walletId === "inApp") {
-                    // Reconnect inApp wallet with new chain
                     connect(async () => {
                         const w = inAppWallet({
                             auth: {
@@ -81,25 +91,23 @@ export default function HomeScreen() {
                                 sponsorGas: true,
                             },
                         });
-                        // This should auto-connect to the previously used method
                         await w.autoConnect({ client });
                         return w;
                     });
                 }
             }, 100);
         } else {
-            // Just update chain if not connected
             setSelectedChain(newChain);
         }
     };
     
-    // Chain options for the picker
+    // Chain options for the picker with proper naming
     const chainOptions = [
-        { value: avalancheFuji, label: "Avalanche Fuji", id: "avalancheFuji" },
-        { value: sepolia, label: "Sepolia", id: "sepolia" },
-        { value: baseSepolia, label: "Base Sepolia", id: "baseSepolia" },
-        { value: polygon, label: "Polygon", id: "polygon" },
-        { value: ethereum, label: "Ethereum", id: "ethereum" },
+        { value: avalancheFuji, label: "Avalanche Fuji", shortLabel: "AVAX", id: "avalancheFuji" },
+        { value: sepolia, label: "Sepolia", shortLabel: "SEP", id: "sepolia" },
+        { value: baseSepolia, label: "Base Sepolia", shortLabel: "BASE", id: "baseSepolia" },
+        { value: polygon, label: "Polygon", shortLabel: "MATIC", id: "polygon" },
+        { value: ethereum, label: "Ethereum", shortLabel: "ETH", id: "ethereum" },
     ];
 
 	const wallets = useMemo(() => [
@@ -117,7 +125,7 @@ export default function HomeScreen() {
 				passkeyDomain: "thirdweb.com",
 			},
 			smartAccount: {
-				chain: selectedChain, // Now dynamic!
+				chain: selectedChain,
 				sponsorGas: true,
 			},
 		}),
@@ -136,7 +144,7 @@ export default function HomeScreen() {
 		createWallet("me.rainbow"),
 		createWallet("com.trustwallet.app"),
 		createWallet("io.zerion.wallet"),
-	], [selectedChain]); // Recreate wallets when chain changes
+	], [selectedChain]);
 	
 	const theme = useColorScheme();
 	
@@ -150,75 +158,161 @@ export default function HomeScreen() {
 				/>
 			}
 		>
+			{/* Settings Gear in Top Right */}
+			<View style={styles.headerControls}>
+				<TouchableOpacity
+					style={styles.topSettingsButton}
+					onPress={() => setNetworkDropdownOpen(!networkDropdownOpen)}
+					activeOpacity={0.7}
+				>
+					<ThemedText style={[
+						styles.topSettingsIcon,
+						networkDropdownOpen && styles.topSettingsIconActive
+					]}>
+						⚙️
+					</ThemedText>
+				</TouchableOpacity>
+			</View>
+
 			<ThemedView style={styles.titleContainer}>
 				<ThemedText type="title">Crypto Payment System</ThemedText>
 			</ThemedView>
 			
-			{/* Toggle between wallet connection and QR generator */}
-			<View style={styles.navigationContainer}>
-				<ThemedButton
-					title="Wallet Connection"
-					variant={!showQRGenerator ? "primary" : "secondary"}
-					onPress={() => setShowQRGenerator(false)}
-				/>
-				<ThemedButton
-					title="Generate QR Code"
-					variant={showQRGenerator ? "primary" : "secondary"}
-					onPress={() => setShowQRGenerator(true)}
-				/>
+			{/* Clean Navigation Tabs */}
+			<View style={styles.modernTabContainer}>
+				<View style={styles.tabSelector}>
+					<TouchableOpacity
+						style={[
+							styles.modernTab,
+							!showQRGenerator && styles.modernTabActive
+						]}
+						onPress={() => setShowQRGenerator(false)}
+						activeOpacity={0.8}
+					>
+						<View style={styles.tabIconContainer}>
+							<ThemedText style={[
+								styles.tabIcon,
+								!showQRGenerator && styles.tabIconActive
+							]}>
+								💳
+							</ThemedText>
+						</View>
+						<ThemedText style={[
+							styles.tabText,
+							!showQRGenerator && styles.tabTextActive
+						]}>
+							Wallet
+						</ThemedText>
+					</TouchableOpacity>
+					
+					<TouchableOpacity
+						style={[
+							styles.modernTab,
+							showQRGenerator && styles.modernTabActive
+						]}
+						onPress={() => setShowQRGenerator(true)}
+						activeOpacity={0.8}
+					>
+						<View style={styles.tabIconContainer}>
+							<ThemedText style={[
+								styles.tabIcon,
+								showQRGenerator && styles.tabIconActive
+							]}>
+								📱
+							</ThemedText>
+						</View>
+						<ThemedText style={[
+							styles.tabText,
+							showQRGenerator && styles.tabTextActive
+						]}>
+							QR Code
+						</ThemedText>
+					</TouchableOpacity>
+				</View>
 			</View>
 			
 			{!showQRGenerator ? (
 				// Wallet Connection Screen
 				<>
-					<View style={{ gap: 2 }}>
-						<ThemedText type="subtitle">{`<ConnectButton />`}</ThemedText>
-						<ThemedText type="subtext">
-							Configurable button + modal, handles both connection and connected
-							state. Example below has Smart Accounts + sponsored transactions
-							enabled.
-						</ThemedText>
-					</View>
-					
-					<View style={{ gap: 8, marginVertical: 16 }}>
-						<ThemedText type="subtitle">Select Network</ThemedText>
-						<View style={{ 
-							flexDirection: 'row', 
-							flexWrap: 'wrap', 
-							gap: 8,
-							paddingVertical: 8 
-						}}>
-							{chainOptions.map((chain) => (
-								<ThemedButton
-									key={chain.id}
-									title={chain.label}
-									variant={selectedChain.id === chain.value.id ? "primary" : "secondary"}
-									onPress={() => handleChainChange(chain.value)}
-								/>
-							))}
+					{/* Hidden Network Dropdown - Only shows when settings gear is pressed */}
+					{networkDropdownOpen && (
+						<View style={styles.networkDropdownSection}>
+							<TouchableOpacity 
+								style={styles.networkDropdownHeader}
+								onPress={() => setNetworkDropdownOpen(!networkDropdownOpen)}
+								activeOpacity={0.7}
+							>
+								<View style={styles.networkDropdownLeft}>
+									<Image 
+										source={getNetworkIcon(chainOptions.find(c => c.value.id === selectedChain.id)?.label || '')} 
+										style={styles.networkDropdownIcon}
+										resizeMode="contain"
+									/>
+									<View style={styles.networkDropdownText}>
+										<ThemedText type="subtext" style={styles.networkDropdownLabel}>Network</ThemedText>
+										<ThemedText style={styles.networkDropdownValue}>
+											{chainOptions.find(c => c.value.id === selectedChain.id)?.label}
+										</ThemedText>
+									</View>
+								</View>
+								<ThemedText style={[styles.networkDropdownArrow, networkDropdownOpen && styles.networkDropdownArrowOpen]}>
+									▼
+								</ThemedText>
+							</TouchableOpacity>
+							
+							{networkDropdownOpen && (
+								<View style={styles.networkDropdownMenu}>
+									{chainOptions.map((chain) => (
+										<TouchableOpacity
+											key={chain.id}
+											style={[
+												styles.networkDropdownItem,
+												selectedChain.id === chain.value.id && styles.networkDropdownItemSelected
+											]}
+											onPress={() => {
+												handleChainChange(chain.value);
+												setNetworkDropdownOpen(false);
+											}}
+											activeOpacity={0.7}
+										>
+											<Image 
+												source={getNetworkIcon(chain.label)} 
+												style={styles.networkDropdownItemIcon}
+												resizeMode="contain"
+											/>
+											<ThemedText style={[
+												styles.networkDropdownItemText,
+												selectedChain.id === chain.value.id && styles.networkDropdownItemTextSelected
+											]}>
+												{chain.label}
+											</ThemedText>
+											{selectedChain.id === chain.value.id && (
+												<ThemedText style={styles.networkDropdownItemCheck}>✓</ThemedText>
+											)}
+										</TouchableOpacity>
+									))}
+								</View>
+							)}
 						</View>
-						<ThemedText type="subtext">
-							Current Smart Account Chain: {chainOptions.find(c => c.value.id === selectedChain.id)?.label}
-						</ThemedText>
-					</View>
+					)}
 					
 					<ConnectButton
 						client={client}
 						theme={theme || "light"}
 						wallets={wallets}
-						chain={selectedChain} // Use selected chain as default
+						chain={selectedChain}
 						chains={[sepolia, baseSepolia, polygon, avalancheFuji, ethereum]}
 					/>
 					
 					<CustomConnectUI />
 				</>
 			) : (
-				// QR Code Generator Screen - Pass wallet data as props
+				// QR Code Generator Screen
 				<QRCodeGenerator 
-  connectedWalletAddress={account?.address}
-  isWalletConnected={!!account}
-  merchantId={account?.address || 'demo_merchant'} // Add this line
-/>
+					connectedWalletAddress={account?.address}
+					isWalletConnected={!!account}
+					merchantId={account?.address || 'demo_merchant'}
+				/>
 			)}
 		</ParallaxScrollView>
 	);
@@ -229,6 +323,7 @@ const CustomConnectUI = () => {
 	const account = useActiveAccount();
 	const [email, setEmail] = useState<string | undefined>();
 	const { disconnect } = useDisconnect();
+	
 	useEffect(() => {
 		if (wallet && wallet.id === "inApp") {
 			getUserEmail({ client }).then(setEmail);
@@ -330,12 +425,176 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		gap: 8,
 	},
-	navigationContainer: {
-		flexDirection: 'row',
-		gap: 10,
-		marginVertical: 20,
-		justifyContent: 'center',
+	// Header Controls Styles
+	headerControls: {
+		position: 'absolute',
+		top: 16,
+		right: 20,
+		zIndex: 10,
 	},
+	topSettingsButton: {
+		width: 44,
+		height: 44,
+		borderRadius: 22,
+		backgroundColor: 'rgba(255, 255, 255, 0.9)',
+		borderWidth: 1,
+		borderColor: 'rgba(255, 255, 255, 0.2)',
+		justifyContent: 'center',
+		alignItems: 'center',
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 6,
+		elevation: 3,
+	},
+	topSettingsIcon: {
+		fontSize: 18,
+	},
+	topSettingsIconActive: {
+		fontSize: 18,
+	},
+	// Modern Tab Styles (cleaned up)
+	modernTabContainer: {
+		marginVertical: 24,
+		paddingHorizontal: 20,
+	},
+	tabSelector: {
+		flexDirection: 'row',
+		backgroundColor: '#F1F5F9',
+		borderRadius: 16,
+		padding: 4,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.05,
+		shadowRadius: 8,
+		elevation: 2,
+	},
+	modernTab: {
+		flex: 1,
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'center',
+		paddingVertical: 14,
+		paddingHorizontal: 16,
+		borderRadius: 12,
+		backgroundColor: 'transparent',
+	},
+	modernTabActive: {
+		backgroundColor: '#FFFFFF',
+		shadowColor: '#375BD2',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.15,
+		shadowRadius: 6,
+		elevation: 3,
+	},
+	tabIconContainer: {
+		marginRight: 8,
+	},
+	tabIcon: {
+		fontSize: 18,
+	},
+	tabIconActive: {
+		fontSize: 18,
+	},
+	tabText: {
+		fontSize: 15,
+		fontWeight: '600',
+		color: '#64748B',
+	},
+	tabTextActive: {
+		color: '#375BD2',
+		fontWeight: '700',
+	},
+	// Network Dropdown Styles
+	networkDropdownSection: {
+		marginVertical: 16,
+	},
+	networkDropdownHeader: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'space-between',
+		backgroundColor: '#F8FAFC',
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: '#E2E8F0',
+		paddingHorizontal: 16,
+		paddingVertical: 12,
+	},
+	networkDropdownLeft: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		flex: 1,
+	},
+	networkDropdownIcon: {
+		width: 24,
+		height: 24,
+		marginRight: 12,
+	},
+	networkDropdownText: {
+		flex: 1,
+	},
+	networkDropdownLabel: {
+		fontSize: 12,
+		color: '#64748B',
+		marginBottom: 2,
+	},
+	networkDropdownValue: {
+		fontSize: 15,
+		fontWeight: '600',
+		color: '#1E293B',
+	},
+	networkDropdownArrow: {
+		fontSize: 12,
+		color: '#64748B',
+		marginLeft: 8,
+	},
+	networkDropdownArrowOpen: {
+		transform: [{ rotate: '180deg' }],
+	},
+	networkDropdownMenu: {
+		backgroundColor: '#FFFFFF',
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: '#E2E8F0',
+		marginTop: 8,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.1,
+		shadowRadius: 12,
+		elevation: 4,
+	},
+	networkDropdownItem: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: 16,
+		paddingVertical: 14,
+		borderBottomWidth: 1,
+		borderBottomColor: '#F1F5F9',
+	},
+	networkDropdownItemSelected: {
+		backgroundColor: '#EEF2FF',
+	},
+	networkDropdownItemIcon: {
+		width: 20,
+		height: 20,
+		marginRight: 12,
+	},
+	networkDropdownItemText: {
+		flex: 1,
+		fontSize: 14,
+		fontWeight: '500',
+		color: '#374151',
+	},
+	networkDropdownItemTextSelected: {
+		color: '#375BD2',
+		fontWeight: '600',
+	},
+	networkDropdownItemCheck: {
+		fontSize: 16,
+		color: '#375BD2',
+		fontWeight: 'bold',
+	},
+	// Keep existing styles
 	stepContainer: {
 		gap: 8,
 		marginBottom: 8,

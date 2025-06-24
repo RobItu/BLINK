@@ -56,7 +56,7 @@ export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
         name: 'Wrapped Ether',
         contractAddress: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
         network: 'sepolia',
-        decimals: 6,
+        decimals: 18,
         coinGeckoId: 'ethereum'
       }]
       

@@ -369,7 +369,10 @@ Proceed?`,
 };
 
   const handlePaymentSuccess = async (result: any, sendAmount: string, usdValue: string, currency: string, isCrossChain: boolean) => {
+	console.log(result);
     const transactionHash = result.transactionHash;
+	const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
+
 
     await transactionStorageService.addTransaction(account?.address!, {
       id: generateUUID(),
@@ -386,6 +389,18 @@ Proceed?`,
       status: 'complete',
       isCirclePayment: false
     });
+
+	const getExplorerUrl = (networkName: string, txHash: string) => {
+    const explorerMap: { [key: string]: string } = {
+      'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+      'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+      'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+      'Polygon': `https://polygonscan.com/tx/${txHash}`,
+      'Ethereum': `https://etherscan.io/tx/${txHash}`,
+      'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+    };
+    return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
+  };
     
     Alert.alert(
       '✅ Smart Send Complete!',
@@ -394,20 +409,34 @@ Proceed?`,
 You sent: ${sendAmount} ${selectedToken}
 Recipient will receive: ${receivedToken} on ${destinationNetwork}
 
-Hash: ${transactionHash}`,
-      [
-        { text: 'Done', onPress: () => {
-          setRecipientAddress('');
-          setAmountInput('');
-          setMemo('');
-          setSelectedToken('');
-          setReceivedToken('');
-          setDestinationNetwork('');
-        }}
-      ]
-    );
+Hash: ${transactionHash}
+${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}`,
+    [
+      { text: 'Done', onPress: () => {
+        setRecipientAddress('');
+        setAmountInput('');
+        setMemo('');
+        setSelectedToken('');
+        setReceivedToken('');
+        setDestinationNetwork('');
+      }},
+      {
+        text: isCrossChain ? 'Track on CCIP' : 'View on Explorer',
+        onPress: () => {
+          const url = isCrossChain 
+            ? ccipExplorerUrl 
+            : getExplorerUrl(selectedNetwork, transactionHash);
+          Linking.openURL(url);
+        }
+      }
+    ]
+  );
+
+
     setSendingTransaction(false);
   };
+
+  
 
   const handlePaymentError = (error: any) => {
     Alert.alert('Transaction Failed', `Error: ${error.message}`);

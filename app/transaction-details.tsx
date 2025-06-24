@@ -229,49 +229,56 @@ export default function TransactionDetailsScreen() {
     return wholePart;
   };
 
-  const handleConfirmPayment = async () => {
-    if (!selectedNetwork || !selectedToken) {
-      Alert.alert('Error', 'Please select a network and token for payment');
-      return;
-    }
-    
-    const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
-    const requiredAmount = calculateRequiredTokenAmount(selectedTokenBalance!);
-    const remainingBalance = getRemainingBalance(selectedTokenBalance!);
-    
-    // Show confirmation with option to send
-    Alert.alert(
-      'Confirm Payment',
-      `⚠️ Payment Warning:
+ const handleConfirmPayment = async () => {
+  if (!selectedNetwork || !selectedToken) {
+    Alert.alert('Error', 'Please select a network and token for payment');
+    return;
+  }
+  
+  const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
+  const requiredAmount = calculateRequiredTokenAmount(selectedTokenBalance!);
+  const remainingBalance = getRemainingBalance(selectedTokenBalance!);
+  
+  // Determine if it's cross-chain
+  const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
+  const paymentMethod = isCrossChain ? 'Cross-Chain BLINK Payment' : 'Direct Transfer';
+  
+  // Single comprehensive confirmation
+  Alert.alert(
+    'Confirm Payment',
+    `⚠️ Payment Details:
 
-You will be sending ${transactionData.amount} USD worth of ${selectedToken}.
-Your remaining ${selectedToken} balance will be ${remainingBalance} ${selectedToken}.
+${paymentMethod}
+${isCrossChain ? `${selectedNetwork} → ${transactionData.network}` : `Network: ${selectedNetwork}`}
 
-Payment Details:
-• Item: ${transactionData.for}
-• Network: ${selectedNetwork}
-• Sending: ${requiredAmount} ${selectedToken}
-• To: ${transactionData.sellerWalletAddress?.slice(0, 6)}...${transactionData.sellerWalletAddress?.slice(-4)}
+- Item: ${transactionData.for}
+- Amount: $${transactionData.amount} USD
+- Sending: ${requiredAmount} ${selectedToken}
+- To: ${transactionData.sellerWalletAddress?.slice(0, 6)}...${transactionData.sellerWalletAddress?.slice(-4)}
 
-Do you want to proceed?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount) }
-      ]
-    );
-  };
+Your remaining ${selectedToken} balance: ${remainingBalance} ${selectedToken}
+
+${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
+
+Proceed with payment?`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount, isCrossChain) }
+    ]
+  );
+};
 
 const handlePaymentSuccess = async (result: any, requiredAmount: string, isCrossChain: boolean) => {
   const transactionHash = result.transactionHash;
-  const ccipExplorerUrl = `https://ccip.chain.link`;
+  const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
 
     await transactionStorageService.addTransaction(account?.address!, {
-    id: transactionData.id,
+    id: result.transactionHash,
     type: 'sent',
     amount: transactionData.amount,
     currency: transactionData.currency as 'USDC' | 'USD',
     itemName: transactionData.for,
-    memo: transactionData.memo,
+    memo: transactionData.memo ? `${transactionData.memo} • Paid with ${requiredAmount} ${selectedToken}` : `Paid with ${requiredAmount} ${selectedToken}`,
     network: selectedNetwork,
     transactionHash: result.transactionHash,
     fromAddress: account?.address!,
@@ -280,6 +287,18 @@ const handlePaymentSuccess = async (result: any, requiredAmount: string, isCross
     status: 'complete',
     isCirclePayment: transactionData.isCirclePayment
   });
+
+  const getExplorerUrl = (networkName: string, txHash: string) => {
+    const explorerMap: { [key: string]: string } = {
+      'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+      'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+      'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+      'Polygon': `https://polygonscan.com/tx/${txHash}`,
+      'Ethereum': `https://etherscan.io/tx/${txHash}`,
+      'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+    };
+    return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
+  };
   
   Alert.alert(
     '✅ Payment Sent!',
@@ -298,7 +317,7 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
         onPress: () => {
           const url = isCrossChain 
             ? ccipExplorerUrl 
-            : `https://testnet.snowtrace.io/tx/${transactionHash}`;
+            : getExplorerUrl(selectedNetwork, transactionHash);
           Linking.openURL(url);
         }
       }
@@ -311,63 +330,46 @@ const handlePaymentError = (error: any) => {
   setSendingTransaction(false);
 };
 
-const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string) => {
+const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string, isCrossChain: boolean) => {
   if (!account?.address || !selectedChainObject) return;
 
-  
   setSendingTransaction(true);
   
   try {
-        console.log('🐛 DEBUG PAYMENT CALCULATION:');
-  console.log('transactionData.amount:', transactionData.amount);
-  console.log('tokenBalance.usdPrice:', tokenBalance.usdPrice);
-  console.log('tokenBalance:', tokenBalance);
-  console.log('requiredAmount being sent:', requiredAmount);
-    const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
+    console.log('🐛 DEBUG PAYMENT CALCULATION:');
+    console.log('transactionData.amount:', transactionData.amount);
+    console.log('tokenBalance.usdPrice:', tokenBalance.usdPrice);
+    console.log('tokenBalance:', tokenBalance);
+    console.log('requiredAmount being sent:', requiredAmount);
     
-    // Show appropriate confirmation
-    const paymentMethod = isCrossChain ? 'Cross-Chain BLINK Payment' : 'Direct Transfer';
-    const confirmMessage = `${paymentMethod}\n\n${
-      isCrossChain 
-        ? `${selectedNetwork} → ${transactionData.network}\nAmount: ${requiredAmount} ${selectedToken}`
-        : `Network: ${selectedNetwork}\nAmount: ${requiredAmount} ${selectedToken}`
-    }\n\nProceed?`;
-    
-    Alert.alert('Confirm Payment', confirmMessage, [
-      { text: 'Cancel', style: 'cancel', onPress: () => setSendingTransaction(false) },
-      { 
-        text: 'Confirm', 
-        onPress: async () => {
-          await BlinkPaymentService.executePayment({
-            client,
-            sourceNetwork: selectedNetwork,
-            destinationNetwork: transactionData.network || '',
-            selectedChain: selectedChainObject,
-            userAddress: account.address,
-            sellerAddress: transactionData.sellerWalletAddress as string,
-            tokenBalance: {
-              symbol: tokenBalance.symbol,
-              contractAddress: tokenBalance.contractAddress,
-              balance: tokenBalance.balance,
-            },
-            requiredAmount,
-            receivedTokenSymbol: 'USDC', // ← ADD THIS LINE
-            sendTransaction: (tx: any, callbacks: any) => {
-              sendTransaction(tx, {
-                onSuccess: (result: any) => {
-                  handlePaymentSuccess(result, requiredAmount, isCrossChain);
-                  callbacks.onSuccess?.(result);
-                },
-                onError: (error: any) => {
-                  handlePaymentError(error);
-                  callbacks.onError?.(error);
-                },
-              });
-            },
-          });
-        }
-      }
-    ]);
+    // Execute payment directly (no second confirmation)
+    await BlinkPaymentService.executePayment({
+      client,
+      sourceNetwork: selectedNetwork,
+      destinationNetwork: transactionData.network || '',
+      selectedChain: selectedChainObject,
+      userAddress: account.address,
+      sellerAddress: transactionData.sellerWalletAddress as string,
+      tokenBalance: {
+        symbol: tokenBalance.symbol,
+        contractAddress: tokenBalance.contractAddress,
+        balance: tokenBalance.balance,
+      },
+      requiredAmount,
+      receivedTokenSymbol: 'USDC',
+      sendTransaction: (tx: any, callbacks: any) => {
+        sendTransaction(tx, {
+          onSuccess: (result: any) => {
+            handlePaymentSuccess(result, requiredAmount, isCrossChain);
+            callbacks.onSuccess?.(result);
+          },
+          onError: (error: any) => {
+            handlePaymentError(error);
+            callbacks.onError?.(error);
+          },
+        });
+      },
+    });
   } catch (error) {
     console.error('Payment error:', error);
     Alert.alert('Error', 'Failed to process payment');
@@ -782,7 +784,7 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   confirmButton: {
-    backgroundColor: '#28a745',
+    backgroundColor: '#007AFF',
     padding: 15,
     borderRadius: 10,
     marginBottom: 10,

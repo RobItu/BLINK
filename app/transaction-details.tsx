@@ -61,6 +61,7 @@ export default function TransactionDetailsScreen() {
   const [loadingBalances, setLoadingBalances] = useState(false);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const [sendingTransaction, setSendingTransaction] = useState(false);
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
   
   const { mutate: sendTransaction } = useSendTransaction();
   
@@ -416,16 +417,37 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
       
       <ScrollView style={styles.scrollContainer}>
         <View style={styles.detailsContainer}>
-          <Text style={styles.detailText}>ID: {transactionData.id}</Text>
-          <Text style={styles.detailText}>Your Wallet: {account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Not Connected'}</Text>
-          <Text style={styles.detailText}>Destination Network: {transactionData.network}</Text>
-          <Text style={styles.detailText}>To: {transactionData.sellerWalletAddress ? `${transactionData.sellerWalletAddress.slice(0, 6)}...${transactionData.sellerWalletAddress.slice(-4)}` : 'Not specified'}</Text>
-          <Text style={styles.detailText}>For: {transactionData.for}</Text>
-          <Text style={styles.detailText}>Amount: {transactionData.amount} {transactionData.currency}</Text>
-          {transactionData.memo && (
-            <Text style={styles.detailText}>Memo: {transactionData.memo}</Text>
-          )}
-        </View>
+  <Text style={styles.detailText}>For: {transactionData.for}</Text>
+  <Text style={styles.detailText}>Amount: {transactionData.amount} {transactionData.currency}</Text>
+  {transactionData.memo && (
+    <Text style={styles.detailText}>Memo: {transactionData.memo}</Text>
+  )}
+</View>
+
+<View style={styles.additionalDetailsSection}>
+  <TouchableOpacity
+    style={styles.additionalDetailsHeader}
+    onPress={() => setShowAdditionalDetails(!showAdditionalDetails)}
+    activeOpacity={0.7}
+  >
+    <Text style={styles.additionalDetailsTitle}>📋 Additional Details</Text>
+    <Text style={[
+      styles.additionalDetailsArrow,
+      showAdditionalDetails && styles.additionalDetailsArrowOpen
+    ]}>
+      ▼
+    </Text>
+  </TouchableOpacity>
+  
+  {showAdditionalDetails && (
+    <View style={styles.additionalDetailsContent}>
+      <Text style={styles.detailText}>ID: {transactionData.id}</Text>
+      <Text style={styles.detailText}>Your Wallet: {account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Not Connected'}</Text>
+      <Text style={styles.detailText}>Destination Network: {transactionData.network}</Text>
+      <Text style={styles.detailText}>To: {transactionData.sellerWalletAddress ? `${transactionData.sellerWalletAddress.slice(0, 6)}...${transactionData.sellerWalletAddress.slice(-4)}` : 'Not specified'}</Text>
+    </View>
+  )}
+</View>
 
         <View style={styles.paymentSection}>
           <Text style={styles.sectionTitle}>Choose Payment Method</Text>
@@ -913,4 +935,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: 'bold',
   },
+  // Add these to your styles object
+additionalDetailsSection: {
+  marginBottom: 20,
+  backgroundColor: '#F8FAFC',
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: '#E2E8F0',
+  overflow: 'hidden',
+},
+additionalDetailsHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+  backgroundColor: '#F1F5F9',
+},
+additionalDetailsTitle: {
+  fontSize: 15,
+  fontWeight: '600',
+  color: '#64748B',
+},
+additionalDetailsArrow: {
+  fontSize: 12,
+  color: '#64748B',
+},
+additionalDetailsArrowOpen: {
+  transform: [{ rotate: '180deg' }],
+},
+additionalDetailsContent: {
+  paddingHorizontal: 16,
+  paddingVertical: 12,
+  backgroundColor: '#FFFFFF',
+},
 });

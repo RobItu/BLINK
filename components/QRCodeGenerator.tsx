@@ -1,4 +1,4 @@
-// QRCodeGenerator.tsx - Clean Bank Integration
+// QRCodeGenerator.tsx - Clean Bank Integration with Simplified UI
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image, Alert } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -46,10 +46,13 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [sellerWalletAddress, setSellerWalletAddress] = useState<string>('');
   const [memo, setmemo] = useState<string>('');
   const [qrSize, setQrSize] = useState<number>(200);
-  const [desiredNetwork, setDesiredNetwork] = useState<string>('Ethereum');
+  const [desiredNetwork, setDesiredNetwork] = useState<string>('Sepolia');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [paymentReceived, setPaymentReceived] = useState(false);
   const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
+  
+  // New state for Additional Settings
+  const [showAdditionalSettings, setShowAdditionalSettings] = useState(false);
   
   // Bank workflow state
   const [showBankModal, setShowBankModal] = useState(false);
@@ -289,69 +292,8 @@ useEffect(() => {
   <ScrollView contentContainerStyle={styles.container}>
     <Text style={styles.title}>Generate Payment QR Code</Text>
     
-    {/* Wallet Connection Status */}
-    <View style={styles.walletStatusContainer}>
-      {isWalletConnected ? (
-        <View style={styles.connectedStatus}>
-          <Text style={styles.connectedText}>✅ Wallet Connected</Text>
-          <Text style={styles.walletAddressText}>
-            {connectedWalletAddress?.slice(0, 6)}...{connectedWalletAddress?.slice(-4)}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.disconnectedStatus}>
-          <Text style={styles.disconnectedText}>❌ No Wallet Connected</Text>
-          <Text style={styles.statusSubtext}>Connect a wallet to auto-fill seller address</Text>
-        </View>
-      )}
-    </View>
-    
+    {/* Main Form Fields - Simple and Clean */}
     <View style={styles.formContainer}>
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Destination Network</Text>
-        <View style={styles.dropdownContainer}>
-          <TouchableOpacity 
-            style={styles.dropdownButton}
-            onPress={() => setIsDropdownOpen(!isDropdownOpen)}
-          >
-            <View style={styles.selectedContainer}>
-              {selectedNetwork && (
-                <Image source={selectedNetwork.icon} style={styles.networkIcon} />
-              )}
-              <Text style={styles.selectedText}>
-                {selectedNetwork ? selectedNetwork.name : 'Select Network'}
-              </Text>
-            </View>
-            <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-
-          {isDropdownOpen && (
-            <View style={styles.dropdown}>
-              {NETWORK_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.name}
-                  style={[
-                    styles.dropdownItem,
-                    desiredNetwork === option.name && styles.selectedItem
-                  ]}
-                  onPress={() => handleNetworkSelect(option.name)}
-                >
-                  <View style={styles.dropdownItemContainer}>
-                    <Image source={option.icon} style={styles.networkIcon} />
-                    <Text style={[
-                      styles.dropdownItemText,
-                      desiredNetwork === option.name && styles.selectedItemText
-                    ]}>
-                      {option.name}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </View>
-
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Item/Service Name</Text>
         <TextInput
@@ -378,40 +320,6 @@ useEffect(() => {
       </View>
       
       <View style={styles.inputGroup}>
-        <View style={styles.labelContainer}>
-          <Text style={styles.inputLabel}>Seller Wallet Address</Text>
-          {isWalletConnected && sellerWalletAddress !== connectedWalletAddress && (
-            <TouchableOpacity onPress={handleUseConnectedWallet}>
-              <Text style={styles.autofillLink}>Use connected wallet</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <TextInput
-          style={[
-            styles.textInput,
-            sellerWalletAddress === connectedWalletAddress && styles.connectedInput
-          ]}
-          value={sellerWalletAddress}
-          onChangeText={setSellerWalletAddress}
-          placeholder="0x..."
-          placeholderTextColor="#999"
-        />
-      </View>
-      
-      <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>Memo (Optional)</Text>
-        <TextInput
-          style={styles.textInput}
-          value={memo}
-          onChangeText={setmemo}
-          placeholder="Add a note or memo"
-          placeholderTextColor="#999"
-          maxLength={20}
-        />
-        <Text style={styles.characterCount}>{memo.length}/20</Text>
-      </View>
-      
-      <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Currency</Text>
         <View style={styles.currencySelector}>
           <TouchableOpacity 
@@ -435,16 +343,140 @@ useEffect(() => {
           </TouchableOpacity>
         </View>
       </View>
+      
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Memo (Optional)</Text>
+        <TextInput
+          style={styles.textInput}
+          value={memo}
+          onChangeText={setmemo}
+          placeholder="Add a note or memo"
+          placeholderTextColor="#999"
+          maxLength={20}
+        />
+        <Text style={styles.characterCount}>{memo.length}/20</Text>
+      </View>
     </View>
     
-    <View style={[styles.previewContainer, paymentReceived && styles.paymentReceivedContainer]}>
-      <TouchableOpacity 
-        style={styles.currencyButton} 
-        onPress={deleteBankDetails}
+    {/* Additional Settings Collapsible Section */}
+    <View style={styles.additionalSettingsSection}>
+      <TouchableOpacity
+        style={styles.additionalSettingsHeader}
+        onPress={() => setShowAdditionalSettings(!showAdditionalSettings)}
+        activeOpacity={0.7}
       >
-        <Text>DEBUG: Delete Bank Details</Text>
+        <Text style={styles.additionalSettingsTitle}>⚙️ Additional Settings</Text>
+        <Text style={[
+          styles.additionalSettingsArrow,
+          showAdditionalSettings && styles.additionalSettingsArrowOpen
+        ]}>
+          ▼
+        </Text>
       </TouchableOpacity>
       
+      {showAdditionalSettings && (
+        <View style={styles.additionalSettingsContent}>
+          {/* Wallet Connection Status */}
+          <View style={styles.settingGroup}>
+            <Text style={styles.settingLabel}>Wallet Status</Text>
+            <View style={styles.walletStatusContainer}>
+              {isWalletConnected ? (
+                <View style={styles.connectedStatus}>
+                  <Text style={styles.connectedText}>✅ Wallet Connected</Text>
+                  <Text style={styles.walletAddressText}>
+                    {connectedWalletAddress?.slice(0, 6)}...{connectedWalletAddress?.slice(-4)}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.disconnectedStatus}>
+                  <Text style={styles.disconnectedText}>❌ No Wallet Connected</Text>
+                  <Text style={styles.statusSubtext}>Connect a wallet to auto-fill your address</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Destination Network */}
+          <View style={styles.settingGroup}>
+            <Text style={styles.settingLabel}>Destination Network</Text>
+            <View style={styles.dropdownContainer}>
+              <TouchableOpacity 
+                style={styles.dropdownButton}
+                onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+              >
+                <View style={styles.selectedContainer}>
+                  {selectedNetwork && (
+                    <Image source={selectedNetwork.icon} style={styles.networkIcon} />
+                  )}
+                  <Text style={styles.dropdownSelectedText}>
+                    {selectedNetwork ? selectedNetwork.name : 'Select Network'}
+                  </Text>
+                </View>
+                <Text style={styles.arrow}>{isDropdownOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+
+              {isDropdownOpen && (
+                <View style={styles.dropdown}>
+                  {NETWORK_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.name}
+                      style={[
+                        styles.dropdownItem,
+                        desiredNetwork === option.name && styles.selectedItem
+                      ]}
+                      onPress={() => handleNetworkSelect(option.name)}
+                    >
+                      <View style={styles.dropdownItemContainer}>
+                        <Image source={option.icon} style={styles.networkIcon} />
+                        <Text style={[
+                          styles.dropdownItemText,
+                          desiredNetwork === option.name && styles.selectedItemText
+                        ]}>
+                          {option.name}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Your Wallet Address (renamed from Seller Wallet Address) */}
+          <View style={styles.settingGroup}>
+            <View style={styles.labelContainer}>
+              <Text style={styles.settingLabel}>Your Wallet Address</Text>
+              {isWalletConnected && sellerWalletAddress !== connectedWalletAddress && (
+                <TouchableOpacity onPress={handleUseConnectedWallet}>
+                  <Text style={styles.autofillLink}>Use connected wallet</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TextInput
+              style={[
+                styles.textInput,
+                sellerWalletAddress === connectedWalletAddress && styles.connectedInput
+              ]}
+              value={sellerWalletAddress}
+              onChangeText={setSellerWalletAddress}
+              placeholder="0x..."
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Debug Button - Only in Additional Settings */}
+          <TouchableOpacity 
+            style={styles.debugButton} 
+            onPress={deleteBankDetails}
+          >
+            <Text style={styles.debugText}>DEBUG: Delete Bank Details</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+    
+    {/* QR Code Preview and Generation */}
+    <View style={[styles.previewContainer, paymentReceived && styles.paymentReceivedContainer]}>
       {paymentReceived && (
         <View style={styles.paymentSuccessIndicator}>
           <Text style={styles.paymentSuccessText}>✅ Payment Received!</Text>
@@ -452,11 +484,11 @@ useEffect(() => {
       )}
       
       <Text style={styles.previewTitle}>Preview</Text>
-      <Text style={styles.previewText}>For: {itemName}</Text>
-      <Text style={styles.previewText}>Amount: {amount} {currencyType}</Text>
+      <Text style={styles.previewText}>For: {itemName || 'Not set'}</Text>
+      <Text style={styles.previewText}>Amount: {amount || '0.00'} {currencyType}</Text>
       <Text style={styles.previewText}>
-        Seller: {getRecipientAddress() ? 
-          `${getRecipientAddress().slice(0, 6)}...${getRecipientAddress().slice(-4)}` : 
+        Recipient: {getRecipientAddress() ? 
+          `${getRecipientAddress().slice(0, 6)}...${getRecipientAddress().slice(-4)} (You)` : 
           'Not set'
         }
       </Text>
@@ -511,61 +543,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: '#333',
   },
-  walletStatusContainer: {
-    width: '100%',
-    marginBottom: 20,
-  },
-  connectedStatus: {
-    backgroundColor: '#e8f5e8',
-    padding: 15,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#4caf50',
-    alignItems: 'center',
-  },
-  disconnectedStatus: {
-    backgroundColor: '#ffeaea',
-    padding: 15,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#f44336',
-    alignItems: 'center',
-  },
-  connectedText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2e7d32',
-    marginBottom: 5,
-  },
-  disconnectedText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#c62828',
-    marginBottom: 5,
-  },
-  walletAddressText: {
-    fontSize: 14,
-    color: '#555',
-    fontFamily: 'monospace',
-    marginBottom: 10,
-  },
-  statusSubtext: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-  },
   formContainer: {
     width: '100%',
     marginBottom: 20,
   },
   inputGroup: {
     marginBottom: 15,
-  },
-  labelContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   inputLabel: {
     fontSize: 16,
@@ -579,11 +562,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 4,
   },
-  autofillLink: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-  },
   textInput: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -593,94 +571,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#f9f9f9',
     color: '#333',
-  },
-  connectedInput: {
-    borderColor: '#4caf50',
-    backgroundColor: '#f8fff8',
-  },
-  dropdownContainer: {
-    position: 'relative',
-    zIndex: 1000,
-  },
-  dropdownButton: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    backgroundColor: '#f9f9f9',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  selectedContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  selectedText: {
-    fontSize: 16,
-    color: '#333',
-    marginRight: 8,
-  },
-  arrow: {
-    fontSize: 16,
-    color: '#666',
-  },
-  dropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderTopWidth: 0,
-    borderBottomLeftRadius: 10,
-    borderBottomRightRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
-    zIndex: 1000,
-  },
-  dropdownItem: {
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  selectedItem: {
-    backgroundColor: '#007AFF',
-  },
-  dropdownItemText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  selectedItemText: {
-    color: '#fff',
-  },
-  previewContainer: {
-    backgroundColor: '#f5f5f5',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-    width: '100%',
-  },
-  previewTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  previewText: {
-    fontSize: 16,
-    marginBottom: 5,
-    color: '#666',
   },
   currencySelector: {
     flexDirection: 'row',
@@ -709,6 +599,230 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+  selectedText: {
+    color: '#fff',
+  },
+  
+  // Additional Settings Styles
+  additionalSettingsSection: {
+    width: '100%',
+    marginBottom: 24,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  additionalSettingsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#F1F5F9',
+  },
+  additionalSettingsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  additionalSettingsArrow: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  additionalSettingsArrowOpen: {
+    transform: [{ rotate: '180deg' }],
+  },
+  additionalSettingsContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  settingGroup: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  
+  // Wallet Status Styles (moved to settings)
+  walletStatusContainer: {
+    width: '100%',
+  },
+  connectedStatus: {
+    backgroundColor: '#e8f5e8',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4caf50',
+    alignItems: 'center',
+  },
+  disconnectedStatus: {
+    backgroundColor: '#ffeaea',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#f44336',
+    alignItems: 'center',
+  },
+  connectedText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2e7d32',
+    marginBottom: 4,
+  },
+  disconnectedText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c62828',
+    marginBottom: 4,
+  },
+  walletAddressText: {
+    fontSize: 12,
+    color: '#555',
+    fontFamily: 'monospace',
+  },
+  statusSubtext: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+  },
+  
+  // Network Dropdown Styles (moved to settings)
+  dropdownContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  dropdownButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f9f9f9',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  dropdownSelectedText: {
+    fontSize: 14,
+    color: '#333',
+    marginRight: 8,
+  },
+  arrow: {
+    fontSize: 14,
+    color: '#666',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  selectedItem: {
+    backgroundColor: '#007AFF',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  selectedItemText: {
+    color: '#fff',
+  },
+  dropdownItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  networkIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  
+  // Wallet Address Input (moved to settings)
+  labelContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  autofillLink: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '500',
+  },
+  connectedInput: {
+    borderColor: '#4caf50',
+    backgroundColor: '#f8fff8',
+  },
+  
+  // Debug Button
+  debugButton: {
+    backgroundColor: '#FF6B6B',
+    padding: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  debugText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  
+  // Preview and QR Styles
+  previewContainer: {
+    backgroundColor: '#f5f5f5',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+    width: '100%',
+  },
+  previewTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  previewText: {
+    fontSize: 16,
+    marginBottom: 5,
+    color: '#666',
+  },
   qrContainer: {
     padding: 20,
     backgroundColor: '#fff',
@@ -728,39 +842,28 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingBottom: 20,
   },
-  networkIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 10,
-  },
-  dropdownItemContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
   paymentReceivedContainer: {
-  borderColor: '#4caf50',
-  borderWidth: 2,
-  backgroundColor: '#f8fff8',
-},
-paymentSuccessIndicator: {
-  backgroundColor: '#4caf50',
-  padding: 10,
-  borderRadius: 8,
-  marginBottom: 10,
-  alignItems: 'center',
-},
-paymentSuccessText: {
-  color: '#fff',
-  fontSize: 16,
-  fontWeight: 'bold',
-},
-connectionStatus: {
-  fontSize: 12,
-  color: '#666',
-  textAlign: 'center',
-  marginTop: 8,
-  fontStyle: 'italic',
-},
+    borderColor: '#4caf50',
+    borderWidth: 2,
+    backgroundColor: '#f8fff8',
+  },
+  paymentSuccessIndicator: {
+    backgroundColor: '#4caf50',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  paymentSuccessText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  connectionStatus: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
 });

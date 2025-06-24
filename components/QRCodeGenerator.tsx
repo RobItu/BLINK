@@ -8,6 +8,7 @@ import { BankDetailsModal } from './BankDetailsModal';
 import { bankStorageService, BankDetails } from '../services/BankStorageService';
 import { transactionStorageService } from '../services/TransactionStorageService';
 
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"; // Ngrok URL or local backend
 
 interface QRCodeGeneratorProps {
@@ -75,7 +76,7 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
 
 useEffect(() => {
   // Only connect WebSocket when expecting USD payments and wallet is connected
-  if (currencyType === 'USD' && connectedWalletAddress && circleDepositAddress) {
+  if (connectedWalletAddress) {
     // Don't create new connection if one already exists
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
       return;
@@ -120,6 +121,29 @@ useEffect(() => {
             [{ text: 'Great!', onPress: () => setPaymentReceived(false) }]
           );
         }
+
+         if (data.type === 'usdc_received' && data.status === 'complete') {
+      console.log('🎯 USDC notification received!', data);
+      
+      // Add to transaction history
+      await transactionStorageService.addTransaction(connectedWalletAddress!, {
+        id: data.transactionHash,
+        type: 'received',
+        amount: data.amount,
+        currency: 'USDC',
+        itemName: itemName || 'USDC Payment Received',
+        memo: memo,
+        network: data.network,
+        transactionHash: data.transactionHash,
+        fromAddress: data.fromAddress,
+        toAddress: connectedWalletAddress!,
+        timestamp: Date.now(),
+        status: 'complete',
+        isCirclePayment: false
+      });
+      
+      Alert.alert('💰 USDC Payment Received!', `${data.amount} USDC received!`);
+    }
       } catch (error) {
         console.error('WebSocket message error:', error);
       }

@@ -7,6 +7,8 @@ import { SUPPORTED_NETWORKS } from '../types/transaction';
 import { BankDetailsModal } from './BankDetailsModal';
 import { bankStorageService, BankDetails } from '../services/BankStorageService';
 import { transactionStorageService } from '../services/TransactionStorageService';
+import { useRouter } from 'expo-router';
+
 
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"; // Ngrok URL or local backend
@@ -51,6 +53,8 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [paymentReceived, setPaymentReceived] = useState(false);
   const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
+  const router = useRouter();
+
   
   // New state for Additional Settings
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(false);
@@ -142,7 +146,19 @@ useEffect(() => {
         isCirclePayment: false
       });
       
-      Alert.alert('💰 USDC Payment Received!', `${data.amount} USDC received!`);
+      Alert.alert(
+  '💰 USDC Payment Received!', 
+  `${data.amount} USDC received!`,
+  [
+    { text: 'OK', style: 'cancel' },
+    { 
+      text: 'View Transaction', 
+      onPress: () => {
+        router.push('/(tabs)/TX History');
+      }
+    }
+  ]
+);
     }
       } catch (error) {
         console.error('WebSocket message error:', error);

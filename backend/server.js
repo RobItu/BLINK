@@ -34,6 +34,7 @@ const wss = new WebSocket.Server({ server });
 // Store merchant connections
 const merchantConnections = new Map();
 
+// Add this to your WebSocket connection handler
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const merchantId = url.searchParams.get('merchantId');
@@ -42,12 +43,47 @@ wss.on('connection', (ws, req) => {
     merchantConnections.set(merchantId, ws);
     console.log(`📱 Merchant ${merchantId} connected via WebSocket`);
     
+    // Send ping every 30 seconds to keep connection alive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+        console.log(`🏓 Ping sent to ${merchantId}`);
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000);
+    
+    // Handle pong responses
+    ws.on('pong', () => {
+      console.log(`🏓 Pong received from ${merchantId}`);
+    });
+    
     ws.on('close', () => {
+      clearInterval(pingInterval);
       merchantConnections.delete(merchantId);
       console.log(`📱 Merchant ${merchantId} disconnected`);
     });
+    
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for ${merchantId}:`, error);
+      clearInterval(pingInterval);
+      merchantConnections.delete(merchantId);
+    });
   }
 });
+
+setInterval(() => {
+  console.log('🧹 Cleaning up dead WebSocket connections...');
+  
+  for (const [merchantId, ws] of merchantConnections.entries()) {
+    if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      console.log(`🗑️ Removing dead connection for ${merchantId}`);
+      merchantConnections.delete(merchantId);
+    }
+  }
+  
+  console.log(`💡 Active connections: ${merchantConnections.size}`);
+}, 60000);
 
 
 // ==========================================

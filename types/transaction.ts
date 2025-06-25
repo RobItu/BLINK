@@ -58,7 +58,15 @@ export const SUPPORTED_NETWORKS: AcceptedNetwork[] = [
         network: 'sepolia',
         decimals: 18,
         coinGeckoId: 'ethereum'
-      }]
+      },
+    {
+    symbol: 'CCIP-BnM',
+    name: 'CCIP-BnM',
+    contractAddress: '0xFd57b4ddBf88a4e07fF4e34C487b99af2Fe82a05',
+    network: 'sepolia',
+    decimals: 18,
+    coinGeckoId:'BONK'
+  }]
       
   },
   {

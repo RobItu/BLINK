@@ -1,5 +1,5 @@
 ![Banner](https://github.com/thirdweb-example/thirdweb-auth-express/assets/17715009/06383e68-9c65-4265-8505-e88e573443f9)
-# thirdweb expo starter
+# Starter
 
 Starter template to build an onchain react native app with [thirdweb](https://thirdweb.com/) and [expo](https://expo.dev/).
 

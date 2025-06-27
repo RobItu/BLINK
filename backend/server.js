@@ -34,6 +34,7 @@ const wss = new WebSocket.Server({ server });
 // Store merchant connections
 const merchantConnections = new Map();
 
+// Add this to your WebSocket connection handler
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const merchantId = url.searchParams.get('merchantId');
@@ -42,12 +43,49 @@ wss.on('connection', (ws, req) => {
     merchantConnections.set(merchantId, ws);
     console.log(`📱 Merchant ${merchantId} connected via WebSocket`);
     
+    // Send ping every 30 seconds to keep connection alive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+        // console.log(`🏓 Ping sent to ${merchantId}`);
+        console.log(``);
+      } else {
+        clearInterval(pingInterval);
+      }
+    }, 30000);
+    
+    // Handle pong responses
+    ws.on('pong', () => {
+      // console.log(`🏓 Pong received from ${merchantId}`);
+      console.log(` `);
+    });
+    
     ws.on('close', () => {
+      clearInterval(pingInterval);
       merchantConnections.delete(merchantId);
       console.log(`📱 Merchant ${merchantId} disconnected`);
     });
+    
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for ${merchantId}:`, error);
+      clearInterval(pingInterval);
+      merchantConnections.delete(merchantId);
+    });
   }
 });
+
+setInterval(() => {
+  console.log('Monitoring...');
+  
+  for (const [merchantId, ws] of merchantConnections.entries()) {
+    if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      console.log(`🗑️ Removing dead connection for ${merchantId}`);
+      merchantConnections.delete(merchantId);
+    }
+  }
+  
+  console.log(`💡 Active connections: ${merchantConnections.size}`);
+}, 60000);
 
 
 // ==========================================
@@ -61,6 +99,39 @@ function generateUUID() {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+// Notify merchant via WebSocket for USDC transfers
+async function notifyMerchantUSDC(merchantId, notificationData) {
+  console.log(`📱 Notifying merchant ${merchantId} for USDC:`, notificationData);
+  
+  // Try exact match first, then lowercase match
+  let ws = merchantConnections.get(merchantId);
+  if (!ws) {
+    ws = merchantConnections.get(merchantId.toLowerCase());
+  }
+  
+  // If still not found, try to find case-insensitive match
+  if (!ws) {
+    for (const [storedAddress, connection] of merchantConnections) {
+      if (storedAddress.toLowerCase() === merchantId.toLowerCase()) {
+        ws = connection;
+        break;
+      }
+    }
+  }
+  
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'usdc_received',
+      ...notificationData
+    }));
+    console.log(`✅ USDC WebSocket notification sent to ${merchantId}`);
+  } else {
+    console.log(`⚠️ No active WebSocket connection for USDC merchant ${merchantId}`);
+    console.log(`Active connections:`, Array.from(merchantConnections.keys()));
+    console.log(`WebSocket state:`, ws ? ws.readyState : 'No WebSocket found');
+  }
 }
 
 async function notifyMerchant(merchantId, notificationData) {
@@ -163,6 +234,53 @@ app.get('/health', (req, res) => {
   });
 });
 
+// QR USDC Notification
+app.post('/webhook/usdc-transfer', (req, res) => {
+  console.log('📨 Webhook received:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { event } = req.body;
+    const network = event.network;
+    const activities = event.activity;
+    
+    console.log(`Processing ${activities.length} activities on ${network}`);
+    
+activities.forEach(activity => {
+  if (activity.asset === 'USDC' && activity.category === 'token') {
+    const fromAddress = activity.fromAddress;
+    let toAddress = activity.toAddress;
+    
+    const connections = Array.from(merchantConnections.keys());
+    const matchingConnection = connections.find(addr => 
+      addr.toLowerCase() === toAddress.toLowerCase()
+    );
+    
+    if (matchingConnection) {
+      toAddress = matchingConnection; // Use the exact case from the connection
+    }
+    
+    const amount = activity.value;
+    const hash = activity.hash;
+    
+    console.log(`💰 USDC received: ${amount} USDC to ${toAddress} from ${fromAddress}`);
+    
+    notifyMerchantUSDC(toAddress, {
+      status: 'complete',
+      amount: amount.toString(),
+      currency: 'USDC',
+      network: network,
+      transactionHash: hash,
+      fromAddress: fromAddress
+    });
+  }
+});
+    
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+  }
+  
+  res.status(200).send('OK');
+});
 // Setup Circle deposit address
 app.post('/api/merchants/:merchantId/setup-circle', async (req, res) => {
   try {

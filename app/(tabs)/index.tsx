@@ -8,15 +8,7 @@ import { chain, client } from "@/constants/thirdweb";
 import { useEffect, useState, useMemo } from "react";
 import { createAuth } from "thirdweb/auth";
 import { avalanche, avalancheFuji, baseSepolia, ethereum, polygon, sepolia } from "thirdweb/chains";
-import {
-	ConnectButton,
-	ConnectEmbed,
-	lightTheme,
-	useActiveAccount,
-	useActiveWallet,
-	useConnect,
-	useDisconnect,
-} from "thirdweb/react";
+import {ConnectButton, ConnectEmbed, lightTheme, useActiveAccount, useActiveWallet, useConnect, useDisconnect,} from "thirdweb/react";
 import { shortenAddress } from "thirdweb/utils";
 import { createWallet } from "thirdweb/wallets";
 import {

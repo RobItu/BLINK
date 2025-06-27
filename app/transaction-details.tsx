@@ -63,6 +63,30 @@ export default function TransactionDetailsScreen() {
   const [sendingTransaction, setSendingTransaction] = useState(false);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
   
+  // Success modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successData, setSuccessData] = useState<{
+    transactionHash: string;
+    amount: string;
+    tokenSymbol: string;
+    isCrossChain: boolean;
+    explorerUrl: string;
+    ccipUrl?: string;
+  } | null>(null);
+  
+  // Confirmation modal states
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [confirmationData, setConfirmationData] = useState<{
+    paymentMethod: string;
+    isCrossChain: boolean;
+    needsSwap: boolean;
+    selectedToken: string;
+    requiredAmount: string;
+    remainingBalance: string;
+    sourceNetwork: string;
+    destinationNetwork: string;
+  } | null>(null);
+  
   const { mutate: sendTransaction } = useSendTransaction();
   
   // Parse the transaction data from params
@@ -229,7 +253,7 @@ export default function TransactionDetailsScreen() {
     return wholePart;
   };
 
- const handleConfirmPayment = async () => {
+const handleConfirmPayment = async () => {
   if (!selectedNetwork || !selectedToken) {
     Alert.alert('Error', 'Please select a network and token for payment');
     return;
@@ -239,46 +263,55 @@ export default function TransactionDetailsScreen() {
   const requiredAmount = calculateRequiredTokenAmount(selectedTokenBalance!);
   const remainingBalance = getRemainingBalance(selectedTokenBalance!);
   
-  // Determine if it's cross-chain
+  // Determine payment type
   const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
-  const paymentMethod = isCrossChain ? 'Cross-Chain BLINK Payment' : 'Direct Transfer';
+  const needsSwap = BlinkPaymentService.isSwapNeeded(selectedToken, 'USDC', selectedNetwork, transactionData.network as string);
   
-  // Single comprehensive confirmation
-  Alert.alert(
-    'Confirm Payment',
-    `⚠️ Payment Details:
+  let paymentMethod = 'Direct Transfer';
+  if (isCrossChain) {
+    paymentMethod = 'Cross-Chain BLINK Payment';
+  } else if (needsSwap) {
+    paymentMethod = 'BLINK Swap Payment';
+  }
+  
+  // Set confirmation data and show custom modal
+  setConfirmationData({
+    paymentMethod,
+    isCrossChain,
+    needsSwap,
+    selectedToken,
+    requiredAmount,
+    remainingBalance,
+    sourceNetwork: selectedNetwork,
+    destinationNetwork: transactionData.network as string,
+  });
+  setShowConfirmationModal(true);
+};
 
-${paymentMethod}
-${isCrossChain ? `${selectedNetwork} → ${transactionData.network}` : `Network: ${selectedNetwork}`}
-
-- Item: ${transactionData.for}
-- Amount: $${transactionData.amount} USD
-- Sending: ${requiredAmount} ${selectedToken}
-- To: ${transactionData.sellerWalletAddress?.slice(0, 6)}...${transactionData.sellerWalletAddress?.slice(-4)}
-
-Your remaining ${selectedToken} balance: ${remainingBalance} ${selectedToken}
-
-${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
-
-Proceed with payment?`,
-    [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount, isCrossChain) }
-    ]
-  );
+const getExplorerUrl = (networkName: string, txHash: string) => {
+  const explorerMap: { [key: string]: string } = {
+    'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+    'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+    'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+    'Polygon': `https://polygonscan.com/tx/${txHash}`,
+    'Ethereum': `https://etherscan.io/tx/${txHash}`,
+    'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+  };
+  return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
 };
 
 const handlePaymentSuccess = async (result: any, requiredAmount: string, isCrossChain: boolean) => {
   const transactionHash = result.transactionHash;
   const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
+  const explorerUrl = getExplorerUrl(selectedNetwork, transactionHash);
 
-    await transactionStorageService.addTransaction(account?.address!, {
-    id: result.transactionHash,
+  await transactionStorageService.addTransaction(account?.address!, {
+    id: transactionHash,
     type: 'sent',
     amount: transactionData.amount,
     currency: transactionData.currency as 'USDC' | 'USD',
     itemName: transactionData.for,
-    memo: transactionData.memo ? `${transactionData.memo} • Paid with ${requiredAmount} ${selectedToken}` : `Paid with ${requiredAmount} ${selectedToken}`,
+    memo: transactionData.memo,
     network: selectedNetwork,
     transactionHash: result.transactionHash,
     fromAddress: account?.address!,
@@ -288,49 +321,25 @@ const handlePaymentSuccess = async (result: any, requiredAmount: string, isCross
     isCirclePayment: transactionData.isCirclePayment
   });
 
-  const getExplorerUrl = (networkName: string, txHash: string) => {
-    const explorerMap: { [key: string]: string } = {
-      'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
-      'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
-      'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
-      'Polygon': `https://polygonscan.com/tx/${txHash}`,
-      'Ethereum': `https://etherscan.io/tx/${txHash}`,
-      'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
-    };
-    return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
-  };
-  
-  Alert.alert(
-    '✅ Payment Sent!',
-    `${isCrossChain ? '🌉 Cross-chain' : '💸 Direct'} payment completed
-
-💰 ${requiredAmount} ${selectedToken} ($${transactionData.amount})
-${isCrossChain ? `📡 ${selectedNetwork} → ${transactionData.network}` : `🌐 ${selectedNetwork}`}
-
-🔗 Hash: ${transactionHash}
-
-${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}`,
-    [
-      { text: 'Done', onPress: () => router.back() },
-      {
-        text: isCrossChain ? 'Track on CCIP' : 'View on Explorer',
-        onPress: () => {
-          const url = isCrossChain 
-            ? ccipExplorerUrl 
-            : getExplorerUrl(selectedNetwork, transactionHash);
-          Linking.openURL(url);
-        }
-      }
-    ]
-  );
+  // Set success data and show custom modal
+  setSuccessData({
+    transactionHash,
+    amount: requiredAmount,
+    tokenSymbol: selectedToken,
+    isCrossChain,
+    explorerUrl,
+    ccipUrl: isCrossChain ? ccipExplorerUrl : undefined,
+  });
+  setShowSuccessModal(true);
   setSendingTransaction(false);
 };
+
 const handlePaymentError = (error: any) => {
   Alert.alert('Transaction Failed', `Error: ${error.message}`);
   setSendingTransaction(false);
 };
 
-const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string, isCrossChain: boolean) => {
+const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string, isCrossChain: boolean, needsSwap: boolean) => {
   if (!account?.address || !selectedChainObject) return;
 
   setSendingTransaction(true);
@@ -341,12 +350,14 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
     console.log('tokenBalance.usdPrice:', tokenBalance.usdPrice);
     console.log('tokenBalance:', tokenBalance);
     console.log('requiredAmount being sent:', requiredAmount);
+    console.log('isCrossChain:', isCrossChain);
+    console.log('needsSwap:', needsSwap);
     
-    // Execute payment directly (no second confirmation)
+    // Execute payment with the correct receivedTokenSymbol
     await BlinkPaymentService.executePayment({
       client,
       sourceNetwork: selectedNetwork,
-      destinationNetwork: transactionData.network || '',
+      destinationNetwork: transactionData.network || selectedNetwork, // Use same network if not cross-chain
       selectedChain: selectedChainObject,
       userAddress: account.address,
       sellerAddress: transactionData.sellerWalletAddress as string,
@@ -356,7 +367,7 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
         balance: tokenBalance.balance,
       },
       requiredAmount,
-      receivedTokenSymbol: 'USDC',
+      receivedTokenSymbol: 'USDC', // Always convert to USDC
       sendTransaction: (tx: any, callbacks: any) => {
         sendTransaction(tx, {
           onSuccess: (result: any) => {
@@ -606,6 +617,214 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
             >
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowSuccessModal(false);
+          router.back();
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.successModal}>
+            {/* Success Icon */}
+            <View style={styles.successIcon}>
+              <Text style={styles.checkmark}>✓</Text>
+            </View>
+            
+            {/* Title */}
+            <Text style={styles.successTitle}>PAYMENT SENT</Text>
+            
+            {/* Payment Details */}
+            <View style={styles.successDetails}>
+              <Text style={styles.successAmount}>
+                {successData?.amount} {successData?.tokenSymbol}
+              </Text>
+              <Text style={styles.successValue}>
+                ${transactionData.amount} USDC
+              </Text>
+              
+              {successData?.isCrossChain ? (
+                <View style={styles.crossChainRoute}>
+                  <View style={styles.networkContainer}>
+                    <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                    <Text style={styles.routeNetworkText}>{selectedNetwork}</Text>
+                  </View>
+                  <Text style={styles.routeArrow}>→</Text>
+                  <View style={styles.networkContainer}>
+                    <Image source={getNetworkIcon(transactionData.network as string)} style={styles.routeNetworkIcon} />
+                    <Text style={styles.routeNetworkText}>{transactionData.network}</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.singleNetworkRoute}>
+                  <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeText}>{selectedNetwork} Network</Text>
+                </View>
+              )}
+              
+              <Text style={styles.deliveryText}>
+                {successData?.isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
+              </Text>
+              
+              {/* Transaction Hash */}
+              <View style={styles.hashContainer}>
+                <Text style={styles.hashLabel}>Transaction Hash</Text>
+                <Text style={styles.hashValue}>
+                  {successData?.transactionHash.slice(0, 8)}...{successData?.transactionHash.slice(-8)}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Buttons */}
+            <View style={styles.successButtons}>
+              {successData?.isCrossChain && successData?.ccipUrl && (
+                <TouchableOpacity 
+                  style={styles.trackButton}
+                  onPress={() => Linking.openURL(successData.ccipUrl!)}
+                >
+                  <Text style={styles.trackButtonText}>Track on CCIP</Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.explorerButton}
+                onPress={() => successData?.explorerUrl && Linking.openURL(successData.explorerUrl)}
+              >
+                <Text style={styles.explorerButtonText}>View on Explorer</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.continueButton}
+                onPress={() => {
+                  setShowSuccessModal(false);
+                  router.back();
+                }}
+              >
+                <Text style={styles.continueButtonText}>CONTINUE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        visible={showConfirmationModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowConfirmationModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmationModal}>
+            {/* Warning Icon */}
+            <View style={styles.warningIcon}>
+              <Text style={styles.warningSymbol}>⚠️</Text>
+            </View>
+            
+            {/* Title */}
+            <Text style={styles.confirmationTitle}>CONFIRM PAYMENT</Text>
+            
+            {/* Payment Method */}
+            <View style={styles.paymentMethodContainer}>
+              <Text style={styles.paymentMethodText}>{confirmationData?.paymentMethod}</Text>
+            </View>
+            
+            {/* Network Route */}
+            {confirmationData?.isCrossChain ? (
+              <View style={styles.crossChainRoute}>
+                <View style={styles.networkContainer}>
+                  <Image source={getNetworkIcon(confirmationData.sourceNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeNetworkText}>{confirmationData.sourceNetwork}</Text>
+                </View>
+                <Text style={styles.routeArrow}>→</Text>
+                <View style={styles.networkContainer}>
+                  <Image source={getNetworkIcon(confirmationData.destinationNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeNetworkText}>{confirmationData.destinationNetwork}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.singleNetworkRoute}>
+                <Image source={getNetworkIcon(confirmationData?.sourceNetwork || '')} style={styles.routeNetworkIcon} />
+                <Text style={styles.routeText}>{confirmationData?.sourceNetwork} Network</Text>
+              </View>
+            )}
+            
+            {/* Payment Details */}
+            <View style={styles.confirmationDetails}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Item:</Text>
+                <Text style={styles.detailValue}>{transactionData.for}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Amount:</Text>
+                <Text style={styles.detailValue}>${transactionData.amount} USD</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Sending:</Text>
+                <Text style={styles.detailValue}>{confirmationData?.requiredAmount} {confirmationData?.selectedToken}</Text>
+              </View>
+              
+              {confirmationData?.needsSwap && !confirmationData?.isCrossChain && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Receiving:</Text>
+                  <Text style={styles.detailValue}>USDC</Text>
+                </View>
+              )}
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>To:</Text>
+                <Text style={styles.detailValue}>
+                  {transactionData.sellerWalletAddress?.slice(0, 6)}...{transactionData.sellerWalletAddress?.slice(-4)}
+                </Text>
+              </View>
+              
+              <View style={styles.remainingBalanceContainer}>
+                <Text style={styles.remainingBalanceText}>
+                  Remaining {confirmationData?.selectedToken} balance: {confirmationData?.remainingBalance} {confirmationData?.selectedToken}
+                </Text>
+              </View>
+              
+              <Text style={styles.deliveryText}>
+                {confirmationData?.isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
+              </Text>
+            </View>
+            
+            {/* Buttons */}
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity 
+                style={styles.cancelConfirmButton}
+                onPress={() => setShowConfirmationModal(false)}
+              >
+                <Text style={styles.cancelConfirmButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.sendPaymentButton}
+                onPress={() => {
+                  setShowConfirmationModal(false);
+                  const selectedTokenBalance = tokenBalances.find(token => token.symbol === confirmationData?.selectedToken);
+                  if (selectedTokenBalance) {
+                    executePayment(
+                      selectedTokenBalance, 
+                      confirmationData?.requiredAmount || '', 
+                      confirmationData?.isCrossChain || false, 
+                      confirmationData?.needsSwap || false
+                    );
+                  }
+                }}
+              >
+                <Text style={styles.sendPaymentButtonText}>Send Payment</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -865,110 +1084,347 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
-   successModal: {
+  // Add these to your styles object
+  additionalDetailsSection: {
+    marginBottom: 20,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  additionalDetailsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#F1F5F9',
+  },
+  additionalDetailsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  additionalDetailsArrow: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  additionalDetailsArrowOpen: {
+    transform: [{ rotate: '180deg' }],
+  },
+  additionalDetailsContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  // Success Modal Styles
+  successModal: {
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 30,
     width: '90%',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  successIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#4A90E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  checkmark: {
+    fontSize: 40,
+    color: '#fff',
+    fontWeight: 'bold',
   },
   successTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
+    color: '#333',
     marginBottom: 20,
-    textAlign: 'center',
+    letterSpacing: 1,
   },
   successDetails: {
     alignItems: 'center',
     marginBottom: 30,
   },
   successAmount: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#28a745',
+    color: '#333',
+    marginBottom: 5,
   },
   successValue: {
+    fontSize: 18,
+    color: '#4A90E2',
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  routeText: {
     fontSize: 16,
     color: '#666',
     marginBottom: 10,
+    fontWeight: '500',
   },
-  routeText: {
+  crossChainRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 10,
+  },
+  singleNetworkRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  networkContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  routeNetworkIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  routeNetworkText: {
     fontSize: 14,
-    color: '#007AFF',
-    marginBottom: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  routeArrow: {
+    fontSize: 18,
+    color: '#4A90E2',
+    fontWeight: 'bold',
+    marginHorizontal: 12,
+  },
+  deliveryText: {
+    fontSize: 14,
+    color: '#28a745',
+    marginBottom: 20,
+    fontWeight: '500',
   },
   hashContainer: {
-    padding: 10,
     backgroundColor: '#f8f9fa',
     borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   hashLabel: {
     fontSize: 12,
     color: '#666',
+    marginBottom: 4,
   },
   hashValue: {
     fontSize: 14,
     fontFamily: 'monospace',
     color: '#333',
-    marginTop: 5,
+    fontWeight: '500',
   },
   successButtons: {
     width: '100%',
   },
   trackButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
     borderRadius: 10,
-    marginBottom: 10,
+    marginBottom: 12,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   trackButtonText: {
     color: '#fff',
+    fontSize: 16,
     textAlign: 'center',
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-  doneButton: {
-    backgroundColor: '#28a745',
-    padding: 15,
+  explorerButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
     borderRadius: 10,
+    marginBottom: 12,
+    shadowColor: '#6c757d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  doneButtonText: {
+  explorerButtonText: {
     color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  continueButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  continueButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  
+  // Confirmation Modal Styles
+  confirmationModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '90%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  warningIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFA500',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  warningSymbol: {
+    fontSize: 35,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+    letterSpacing: 1,
+  },
+  paymentMethodContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  paymentMethodText: {
+    fontSize: 16,
+    color: '#4A90E2',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  confirmationDetails: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  detailLabel: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'right',
+    flex: 1,
+    marginLeft: 20,
+  },
+  remainingBalanceContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  remainingBalanceText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 15,
+  },
+  cancelConfirmButton: {
+    flex: 1,
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#6c757d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cancelConfirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  sendPaymentButton: {
+    flex: 1,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  sendPaymentButtonText: {
+    color: '#fff',
+    fontSize: 16,
     textAlign: 'center',
     fontWeight: 'bold',
   },
-  // Add these to your styles object
-additionalDetailsSection: {
-  marginBottom: 20,
-  backgroundColor: '#F8FAFC',
-  borderRadius: 12,
-  borderWidth: 1,
-  borderColor: '#E2E8F0',
-  overflow: 'hidden',
-},
-additionalDetailsHeader: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  paddingHorizontal: 16,
-  paddingVertical: 14,
-  backgroundColor: '#F1F5F9',
-},
-additionalDetailsTitle: {
-  fontSize: 15,
-  fontWeight: '600',
-  color: '#64748B',
-},
-additionalDetailsArrow: {
-  fontSize: 12,
-  color: '#64748B',
-},
-additionalDetailsArrowOpen: {
-  transform: [{ rotate: '180deg' }],
-},
-additionalDetailsContent: {
-  paddingHorizontal: 16,
-  paddingVertical: 12,
-  backgroundColor: '#FFFFFF',
-},
 });

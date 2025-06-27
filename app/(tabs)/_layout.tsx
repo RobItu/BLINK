@@ -64,9 +64,9 @@ export default function TabLayout() {
 				}}
 			/>
 			<Tabs.Screen
-				name="Smart Send"
+				name="Smart Swap"
 				options={{
-					title: "Smart Send",
+					title: "Smart Swap",
 					tabBarIcon: ({ color, focused }) => (
 						<TabBarIcon
 							name={focused ? "code-slash" : "code-slash-outline"}
@@ -76,12 +76,12 @@ export default function TabLayout() {
 				}}
 			/>
 			<Tabs.Screen
-				name="buy"
+				name="Solana"
 				options={{
-					title: "Buy",
+					title: "Solana",
 					tabBarIcon: ({ color, focused }) => (
 						<TabBarIcon
-							name={focused ? "cart" : "cart-outline"}
+							name={focused ? "swap-horizontal" : "swap-horizontal-outline"}
 							color={color}
 						/>
 					),

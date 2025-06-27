@@ -65,9 +65,9 @@ const BLINK_CONTRACT_ABI = [
 // BLINK Contract Configuration
 const BLINK_CONTRACT_ADDRESSES: Record<string, string> = {
 //   'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
-'Avalanche Fuji': '0x03397e5c20d0D9C99E6622bCa9945e680b0C5dD6',
-  'Sepolia': '0xA0Df20Ce1B5f84eeDBD83FF29276e9445D44bb1B',
-  'Base Sepolia': '0xFD1A6ce265fB857993E9F24657A229f6c9B10833',
+'Avalanche Fuji': '0x545DaAecb776F74b997b92Fc1505EAe5AC944685',
+  'Sepolia': '0x5b735434C671c4D1121Bd375437D8BFA5E8bFC5a',
+  'Base Sepolia': '0xD8ddB7Ed906D38C20F488085d61E52833E979Cf0',
 };
 
 const CHAIN_SELECTORS: Record<string, string> = {
@@ -142,7 +142,7 @@ export class BlinkPaymentService {
       await this.executeDirectPayment(params);
     }
   }
-  
+
   private static parseTokenAmount(amount: string, tokenSymbol: string, network: string): bigint {
   // Get token decimals based on network and symbol
   const decimals = this.getTokenDecimals(network, tokenSymbol);

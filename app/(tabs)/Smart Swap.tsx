@@ -52,6 +52,18 @@ const generateUUID = (): string => {
   });
 };
 
+const getExplorerUrl = (networkName: string, txHash: string) => {
+  const explorerMap: { [key: string]: string } = {
+    'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+    'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+    'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+    'Polygon': `https://polygonscan.com/tx/${txHash}`,
+    'Ethereum': `https://etherscan.io/tx/${txHash}`,
+    'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+  };
+  return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
+};
+
 export default function SendTabScreen() {
   const router = useRouter();
   const account = useActiveAccount();
@@ -72,6 +84,23 @@ export default function SendTabScreen() {
   const [showNetworkModal, setShowNetworkModal] = useState(false);
   const [showDestinationModal, setShowDestinationModal] = useState(false);
   const [showReceivedTokenModal, setShowReceivedTokenModal] = useState(false);
+  
+  // Custom modal states
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [confirmationData, setConfirmationData] = useState<{
+    sendAmount: string;
+    usdValue: string;
+    isCrossChain: boolean;
+  } | null>(null);
+  const [successData, setSuccessData] = useState<{
+    transactionHash: string;
+    sendAmount: string;
+    usdValue: string;
+    isCrossChain: boolean;
+    explorerUrl: string;
+    ccipUrl?: string;
+  } | null>(null);
   
   // Balance states
   const [tokenBalances, setTokenBalances] = useState<TokenBalance[]>([]);
@@ -288,52 +317,61 @@ const calculateSendAmount = (selectedTokenBalance: TokenBalance) => {
     return sendAmount > availableBalance;
   };
 
-  const handleConfirmPayment = async () => {
-    if (!selectedNetwork || !destinationNetwork || !selectedToken || !receivedToken || !recipientAddress || !amountInput) {
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
-    }
+ const handleConfirmPayment = async () => {
+  if (!selectedNetwork || !destinationNetwork || !selectedToken || !receivedToken || !recipientAddress || !amountInput) {
+    Alert.alert('Error', 'Please fill in all required fields');
+    return;
+  }
 
-    if (!recipientAddress.startsWith('0x') || recipientAddress.length !== 42) {
-      Alert.alert('Error', 'Please enter a valid Ethereum address');
-      return;
-    }
-    
-    const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
-    if (!selectedTokenBalance) return;
+  if (!recipientAddress.startsWith('0x') || recipientAddress.length !== 42) {
+    Alert.alert('Error', 'Please enter a valid Ethereum address');
+    return;
+  }
+  
+  const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
+  if (!selectedTokenBalance) return;
 
-    const sendAmount = calculateSendAmount(selectedTokenBalance);
-    const usdValue = amountType === 'usd' 
-      ? amountInput 
-      : (parseFloat(sendAmount) * (selectedTokenBalance.usdPrice || 0)).toFixed(2);
+  const sendAmount = calculateSendAmount(selectedTokenBalance);
+  const usdValue = amountType === 'usd' 
+    ? amountInput 
+    : (parseFloat(sendAmount) * (selectedTokenBalance.usdPrice || 0)).toFixed(2);
 
-    const isCrossChain = selectedNetwork !== destinationNetwork;
+  const isCrossChain = selectedNetwork !== destinationNetwork;
+  const needsSwap = BlinkPaymentService.isSwapNeeded(selectedToken, receivedToken, selectedNetwork, destinationNetwork);
 
-    Alert.alert(
-      'Confirm Smart Swap',
-      `You send: ${sendAmount} ${selectedToken} ($${usdValue})
-From: ${selectedNetwork}
+  console.log('🐛 DEBUG SMART SWAP:');
+  console.log('selectedToken:', selectedToken);
+  console.log('receivedToken:', receivedToken);
+  console.log('selectedNetwork:', selectedNetwork);
+  console.log('destinationNetwork:', destinationNetwork);
+  console.log('isCrossChain:', isCrossChain);
+  console.log('needsSwap:', needsSwap);
 
-Recipient gets: ${receivedToken}
-On: ${destinationNetwork}
-Address: ${recipientAddress.slice(0, 8)}...${recipientAddress.slice(-6)}
+  // Set confirmation data and show custom modal
+  setConfirmationData({
+    sendAmount,
+    usdValue,
+    isCrossChain,
+  });
+  setShowConfirmationModal(true);
+};
 
-${isCrossChain ? '🔄 Multi-step swap process will handle conversion' : '💸 Direct transfer'}
-
-Proceed?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Send', onPress: () => executePayment(selectedTokenBalance, sendAmount, usdValue, isCrossChain) }
-      ]
-    );
-  };
-
-  const executePayment = async (tokenBalance: TokenBalance, sendAmount: string, usdValue: string, isCrossChain: boolean) => {
-  if (!account?.address || !selectedChainObject) return;
+  const executePayment = async (sendAmount: string, usdValue: string, isCrossChain: boolean) => {
+  const selectedTokenBalance = tokenBalances.find(token => token.symbol === selectedToken);
+  if (!account?.address || !selectedChainObject || !selectedTokenBalance) return;
   
   setSendingTransaction(true);
+  setShowConfirmationModal(false);
   
   try {
+    console.log('🐛 DEBUG SMART SWAP EXECUTION:');
+    console.log('sendAmount:', sendAmount);
+    console.log('selectedToken:', selectedToken);
+    console.log('receivedToken:', receivedToken);
+    console.log('selectedNetwork:', selectedNetwork);
+    console.log('destinationNetwork:', destinationNetwork);
+    console.log('isCrossChain:', isCrossChain);
+    
     await BlinkPaymentService.executePayment({
       client,
       sourceNetwork: selectedNetwork,
@@ -342,12 +380,12 @@ Proceed?`,
       userAddress: account.address,
       sellerAddress: recipientAddress,
       tokenBalance: {
-        symbol: tokenBalance.symbol,
-        contractAddress: tokenBalance.contractAddress,
-        balance: tokenBalance.balance,
+        symbol: selectedTokenBalance.symbol,
+        contractAddress: selectedTokenBalance.contractAddress,
+        balance: selectedTokenBalance.balance,
       },
       requiredAmount: sendAmount,
-      receivedTokenSymbol: receivedToken, // ← ADD THIS LINE
+      receivedTokenSymbol: receivedToken, // This is crucial - use the token the recipient should receive
       sendTransaction: (tx: any, callbacks: any) => {
         sendTransaction(tx, {
           onSuccess: (result: any) => {
@@ -369,10 +407,10 @@ Proceed?`,
 };
 
   const handlePaymentSuccess = async (result: any, sendAmount: string, usdValue: string, currency: string, isCrossChain: boolean) => {
-	console.log(result);
+    console.log(result);
     const transactionHash = result.transactionHash;
-	const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
-
+    const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
+    const explorerUrl = getExplorerUrl(selectedNetwork, transactionHash);
 
     await transactionStorageService.addTransaction(account?.address!, {
       id: generateUUID(),
@@ -390,53 +428,18 @@ Proceed?`,
       isCirclePayment: false
     });
 
-	const getExplorerUrl = (networkName: string, txHash: string) => {
-    const explorerMap: { [key: string]: string } = {
-      'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
-      'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
-      'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
-      'Polygon': `https://polygonscan.com/tx/${txHash}`,
-      'Ethereum': `https://etherscan.io/tx/${txHash}`,
-      'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
-    };
-    return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
-  };
-    
-    Alert.alert(
-      '✅ Smart Swap Complete!',
-      `Transaction initiated successfully!
-
-You sent: ${sendAmount} ${selectedToken}
-Recipient will receive: ${receivedToken} on ${destinationNetwork}
-
-Hash: ${transactionHash}
-${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}`,
-    [
-      { text: 'Done', onPress: () => {
-        setRecipientAddress('');
-        setAmountInput('');
-        setMemo('');
-        setSelectedToken('');
-        setReceivedToken('');
-        setDestinationNetwork('');
-      }},
-      {
-        text: isCrossChain ? 'Track on CCIP' : 'View on Explorer',
-        onPress: () => {
-          const url = isCrossChain 
-            ? ccipExplorerUrl 
-            : getExplorerUrl(selectedNetwork, transactionHash);
-          Linking.openURL(url);
-        }
-      }
-    ]
-  );
-
-
+    // Set success data and show custom modal
+    setSuccessData({
+      transactionHash,
+      sendAmount,
+      usdValue,
+      isCrossChain,
+      explorerUrl,
+      ccipUrl: isCrossChain ? ccipExplorerUrl : undefined,
+    });
+    setShowSuccessModal(true);
     setSendingTransaction(false);
   };
-
-  
 
   const handlePaymentError = (error: any) => {
     Alert.alert('Transaction Failed', `Error: ${error.message}`);
@@ -513,8 +516,11 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
           style={styles.recipientNetworkIcon} 
         />
       )}
-      <Text style={styles.recipientSelectorText}>
-        {destinationNetwork || 'Ethereum'}
+      <Text style={[
+        styles.recipientSelectorText,
+        !destinationNetwork && styles.disabledText
+      ]}>
+        {destinationNetwork || '[SELECT NETWORK]'}
       </Text>
     </View>
     <Text style={styles.arrow}>▼</Text>
@@ -528,12 +534,20 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
               onPress={() => setShowReceivedTokenModal(true)}
               disabled={!destinationNetwork}
             >
-              <Text style={[
-                styles.recipientSelectorText,
-                !destinationNetwork && styles.disabledText
-              ]}>
-                {receivedToken || '[SELECT TOKEN]'}
-              </Text>
+              <View style={styles.selectorWithIcon}>
+                {receivedToken && (
+                  <Image 
+                    source={getTokenIcon(destinationTokens.find(t => t.symbol === receivedToken) || { symbol: receivedToken, name: '', balance: '0', decimals: 18 }, destinationNetwork)} 
+                    style={styles.recipientNetworkIcon} 
+                  />
+                )}
+                <Text style={[
+                  styles.recipientSelectorText,
+                  !destinationNetwork && styles.disabledText
+                ]}>
+                  {receivedToken || '[SELECT TOKEN]'}
+                </Text>
+              </View>
               <Text style={styles.arrow}>▼</Text>
             </TouchableOpacity>
           </View>
@@ -580,7 +594,20 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
             style={styles.selectorButton}
             onPress={() => setShowNetworkModal(true)}
           >
-            <Text style={styles.selectorText}>{selectedNetwork || 'Choose your network' }</Text>
+            <View style={styles.selectorWithIcon}>
+              {selectedNetwork && (
+                <Image 
+                  source={getNetworkIcon(selectedNetwork)} 
+                  style={styles.recipientNetworkIcon} 
+                />
+              )}
+              <Text style={[
+                styles.selectorText,
+                !selectedNetwork && styles.disabledText
+              ]}>
+                {selectedNetwork || '[SELECT NETWORK]'}
+              </Text>
+            </View>
             <Text style={styles.arrow}>▼</Text>
           </TouchableOpacity>
         </View>
@@ -677,7 +704,7 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
         </TouchableOpacity>
       </View>
 
-      {/* Modals */}
+      {/* Network Selection Modals */}
       <Modal visible={showNetworkModal} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -749,6 +776,215 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
             <TouchableOpacity style={styles.modalCloseButton} onPress={() => setShowReceivedTokenModal(false)}>
               <Text style={styles.modalCloseText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        visible={showConfirmationModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowConfirmationModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmationModal}>
+            {/* Warning Icon */}
+            <View style={styles.warningIcon}>
+              <Text style={styles.warningSymbol}>⚠️</Text>
+            </View>
+            
+            {/* Title */}
+            <Text style={styles.confirmationTitle}>CONFIRM SMART SWAP</Text>
+            
+            {/* Swap Route */}
+            {confirmationData?.isCrossChain ? (
+              <View style={styles.crossChainRoute}>
+                <View style={styles.networkContainer}>
+                  <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeNetworkText}>{selectedNetwork}</Text>
+                </View>
+                <Text style={styles.routeArrow}>→</Text>
+                <View style={styles.networkContainer}>
+                  <Image source={getNetworkIcon(destinationNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeNetworkText}>{destinationNetwork}</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.singleNetworkRoute}>
+                <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                <Text style={styles.routeText}>{selectedNetwork} Network</Text>
+              </View>
+            )}
+            
+            {/* Swap Details */}
+            <View style={styles.confirmationDetails}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>You Send:</Text>
+                <Text style={styles.detailValue}>{confirmationData?.sendAmount} {selectedToken}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>USD Value:</Text>
+                <Text style={styles.detailValue}>${confirmationData?.usdValue}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Recipient Gets:</Text>
+                <Text style={styles.detailValue}>{receivedToken}</Text>
+              </View>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>To Address:</Text>
+                <Text style={styles.detailValue}>
+                  {recipientAddress.slice(0, 8)}...{recipientAddress.slice(-6)}
+                </Text>
+              </View>
+              
+              <View style={styles.swapTypeContainer}>
+                <Text style={styles.swapTypeText}>
+                  {confirmationData?.isCrossChain ? '🔄 Multi-step swap process will handle conversion' : '💸 Direct transfer'}
+                </Text>
+              </View>
+              
+              <Text style={styles.deliveryText}>
+                {confirmationData?.isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
+              </Text>
+            </View>
+            
+            {/* Buttons */}
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity 
+                style={styles.cancelConfirmButton}
+                onPress={() => setShowConfirmationModal(false)}
+              >
+                <Text style={styles.cancelConfirmButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.sendPaymentButton}
+                onPress={() => {
+                  if (confirmationData) {
+                    executePayment(
+                      confirmationData.sendAmount,
+                      confirmationData.usdValue,
+                      confirmationData.isCrossChain
+                    );
+                  }
+                }}
+              >
+                <Text style={styles.sendPaymentButtonText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowSuccessModal(false);
+          // Reset form
+          setRecipientAddress('');
+          setAmountInput('');
+          setMemo('');
+          setSelectedToken('');
+          setReceivedToken('');
+          setDestinationNetwork('');
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.successModal}>
+            {/* Success Icon */}
+            <View style={styles.successIcon}>
+              <Text style={styles.checkmark}>✓</Text>
+            </View>
+            
+            {/* Title */}
+            <Text style={styles.successTitle}>SMART SWAP COMPLETE!</Text>
+            
+            {/* Swap Details */}
+            <View style={styles.successDetails}>
+              <Text style={styles.successAmount}>
+                {successData?.sendAmount} {selectedToken}
+              </Text>
+              <Text style={styles.successValue}>
+                ${successData?.usdValue} USD
+              </Text>
+              
+              {successData?.isCrossChain ? (
+                <View style={styles.crossChainRoute}>
+                  <View style={styles.networkContainer}>
+                    <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                    <Text style={styles.routeNetworkText}>{selectedNetwork}</Text>
+                  </View>
+                  <Text style={styles.routeArrow}>→</Text>
+                  <View style={styles.networkContainer}>
+                    <Image source={getNetworkIcon(destinationNetwork)} style={styles.routeNetworkIcon} />
+                    <Text style={styles.routeNetworkText}>{destinationNetwork}</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.singleNetworkRoute}>
+                  <Image source={getNetworkIcon(selectedNetwork)} style={styles.routeNetworkIcon} />
+                  <Text style={styles.routeText}>{selectedNetwork} Network</Text>
+                </View>
+              )}
+              
+              <Text style={styles.recipientInfo}>
+                Recipient will receive: {receivedToken}
+              </Text>
+              
+              <Text style={styles.deliveryText}>
+                {successData?.isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
+              </Text>
+              
+              {/* Transaction Hash */}
+              <View style={styles.hashContainer}>
+                <Text style={styles.hashLabel}>Transaction Hash</Text>
+                <Text style={styles.hashValue}>
+                  {successData?.transactionHash.slice(0, 8)}...{successData?.transactionHash.slice(-8)}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Buttons */}
+            <View style={styles.successButtons}>
+              {successData?.isCrossChain && successData?.ccipUrl && (
+                <TouchableOpacity 
+                  style={styles.trackButton}
+                  onPress={() => Linking.openURL(successData.ccipUrl!)}
+                >
+                  <Text style={styles.trackButtonText}>Track on CCIP</Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.explorerButton}
+                onPress={() => successData?.explorerUrl && Linking.openURL(successData.explorerUrl)}
+              >
+                <Text style={styles.explorerButtonText}>View on Explorer</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.continueButton}
+                onPress={() => {
+                  setShowSuccessModal(false);
+                  // Reset form
+                  setRecipientAddress('');
+                  setAmountInput('');
+                  setMemo('');
+                  setSelectedToken('');
+                  setReceivedToken('');
+                  setDestinationNetwork('');
+                }}
+              >
+                <Text style={styles.continueButtonText}>DONE</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1045,23 +1281,324 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   selectorWithIcon: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  flex: 1,
-},
-recipientNetworkIcon: {
-  width: 18,
-  height: 18,
-  borderRadius: 9,
-  marginRight: 8,
-},
-needAmount: {
-  fontSize: 12,
-  marginTop: 2,
-  fontWeight: '500',
-  textAlign: 'center',
-},
-validNeedAmount: {
-  color: '#007AFF',
-},
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  recipientNetworkIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginRight: 8,
+  },
+  needAmount: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  validNeedAmount: {
+    color: '#007AFF',
+  },
+
+  // Confirmation Modal Styles
+  confirmationModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '90%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  warningIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFA500',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  warningSymbol: {
+    fontSize: 35,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  confirmationTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+    letterSpacing: 1,
+  },
+  crossChainRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 10,
+  },
+  singleNetworkRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  networkContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'transparent',
+    borderRadius: 16,
+  },
+  routeNetworkIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  routeNetworkText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  routeText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  routeArrow: {
+    fontSize: 18,
+    color: '#4A90E2',
+    fontWeight: 'bold',
+    marginHorizontal: 12,
+  },
+  confirmationDetails: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  detailLabel: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'right',
+    flex: 1,
+    marginLeft: 20,
+  },
+  swapTypeContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  swapTypeText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  deliveryText: {
+    fontSize: 14,
+    color: '#28a745',
+    marginBottom: 20,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 15,
+  },
+  cancelConfirmButton: {
+    flex: 1,
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#6c757d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cancelConfirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  sendPaymentButton: {
+    flex: 1,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  sendPaymentButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+
+  // Success Modal Styles
+  successModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '90%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  successIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#4A90E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  checkmark: {
+    fontSize: 40,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+    letterSpacing: 1,
+  },
+  successDetails: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  successAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  successValue: {
+    fontSize: 18,
+    color: '#4A90E2',
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  recipientInfo: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  hashContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    marginTop: 15,
+  },
+  hashLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  hashValue: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: '#333',
+    fontWeight: '500',
+  },
+  successButtons: {
+    width: '100%',
+  },
+  trackButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginBottom: 12,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  trackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  explorerButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginBottom: 12,
+    shadowColor: '#6c757d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  explorerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  continueButton: {
+    backgroundColor: '#4A90E2',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  continueButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
 });

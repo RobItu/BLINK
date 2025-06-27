@@ -310,7 +310,7 @@ const calculateSendAmount = (selectedTokenBalance: TokenBalance) => {
     const isCrossChain = selectedNetwork !== destinationNetwork;
 
     Alert.alert(
-      'Confirm Smart Send',
+      'Confirm Smart Swap',
       `You send: ${sendAmount} ${selectedToken} ($${usdValue})
 From: ${selectedNetwork}
 
@@ -379,7 +379,7 @@ Proceed?`,
       type: 'sent',
       amount: usdValue,
       currency: currency,
-      itemName: `Smart Send → ${selectedToken} → ${receivedToken}`,
+      itemName: `Smart Swap → ${selectedToken} → ${receivedToken}`,
       memo: memo || undefined,
       network: selectedNetwork,
       transactionHash: result.transactionHash,
@@ -403,7 +403,7 @@ Proceed?`,
   };
     
     Alert.alert(
-      '✅ Smart Send Complete!',
+      '✅ Smart Swap Complete!',
       `Transaction initiated successfully!
 
 You sent: ${sendAmount} ${selectedToken}
@@ -477,7 +477,7 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
   
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Smart Send</Text>
+      <Text style={styles.title}>Smart Swap</Text>
       
       <ScrollView style={styles.scrollContainer}>
         {/* Recipient Info Box */}

@@ -64,9 +64,9 @@ export default function TabLayout() {
 				}}
 			/>
 			<Tabs.Screen
-				name="Smart Send"
+				name="Smart Swap"
 				options={{
-					title: "Smart Send",
+					title: "Smart Swap",
 					tabBarIcon: ({ color, focused }) => (
 						<TabBarIcon
 							name={focused ? "code-slash" : "code-slash-outline"}

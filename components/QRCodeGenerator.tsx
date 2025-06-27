@@ -1,6 +1,5 @@
-// QRCodeGenerator.tsx - Clean Bank Integration with Simplified UI
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, TextInput, ScrollView, Image, Alert, Modal, Linking } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { createTransaction, CurrencyType, TransactionData } from '../types/transaction';
 import { SUPPORTED_NETWORKS } from '../types/transaction';
@@ -8,8 +7,6 @@ import { BankDetailsModal } from './BankDetailsModal';
 import { bankStorageService, BankDetails } from '../services/BankStorageService';
 import { transactionStorageService } from '../services/TransactionStorageService';
 import { useRouter } from 'expo-router';
-
-
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"; // Ngrok URL or local backend
 
@@ -30,6 +27,18 @@ const getNetworkIcon = (networkName: string) => {
     'Avalanche': require('../assets/images/networks/avalancheFuji.png'),
   };
   return iconMap[networkName] || require('../assets/images/networks/sepolia.png');
+};
+
+const getExplorerUrl = (networkName: string, txHash: string) => {
+  const explorerMap: { [key: string]: string } = {
+    'Avalanche Fuji': `https://testnet.snowtrace.io/tx/${txHash}`,
+    'Base Sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+    'Sepolia': `https://sepolia.etherscan.io/tx/${txHash}`,
+    'Polygon': `https://polygonscan.com/tx/${txHash}`,
+    'Ethereum': `https://etherscan.io/tx/${txHash}`,
+    'Arbitrum': `https://arbiscan.io/tx/${txHash}`,
+  };
+  return explorerMap[networkName] || `https://etherscan.io/tx/${txHash}`;
 };
 
 const NETWORK_OPTIONS = SUPPORTED_NETWORKS.map(network => ({
@@ -55,6 +64,19 @@ export const QRCodeGenerator: React.FC<QRCodeGeneratorProps> = ({
   const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
   const router = useRouter();
 
+  // Payment Received Modal states
+  const [showReceivedModal, setShowReceivedModal] = useState(false);
+  const [receivedData, setReceivedData] = useState<{
+    transactionHash: string;
+    amount: string;
+    tokenSymbol: string;
+    usdAmount: string;
+    fromAddress: string;
+    network: string;
+    explorerUrl: string;
+    memo?: string;
+    isCirclePayment?: boolean; // Flag to differentiate messaging
+  } | null>(null);
   
   // New state for Additional Settings
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(false);
@@ -119,11 +141,21 @@ useEffect(() => {
   });
           
           setPaymentReceived(true);
-          Alert.alert(
-            '💰 Payment Received!',
-            `$${data.amount} received and will be converted to USD in your bank account.`,
-            [{ text: 'Great!', onPress: () => setPaymentReceived(false) }]
-          );
+          
+          // Show custom modal for Circle/USD deposits with bank conversion messaging
+          const explorerUrl = getExplorerUrl(data.sourceChain, data.transactionHash);
+          setReceivedData({
+            transactionHash: data.transactionHash,
+            amount: data.amount,
+            tokenSymbol: 'USD',
+            usdAmount: data.amount,
+            fromAddress: 'Circle Deposit',
+            network: data.sourceChain,
+            explorerUrl,
+            memo: memo || undefined,
+            isCirclePayment: true, // Flag to differentiate messaging
+          });
+          setShowReceivedModal(true);
         }
 
          if (data.type === 'usdc_received' && data.status === 'complete') {
@@ -146,19 +178,20 @@ useEffect(() => {
         isCirclePayment: false
       });
       
-      Alert.alert(
-  '💰 USDC Payment Received!', 
-  `${data.amount} USDC received!`,
-  [
-    { text: 'OK', style: 'cancel' },
-    { 
-      text: 'View Transaction', 
-      onPress: () => {
-        router.push('/(tabs)/TX History');
-      }
-    }
-  ]
-);
+      // Show custom modal for USDC payments
+      const explorerUrl = getExplorerUrl(data.network, data.transactionHash);
+      setReceivedData({
+        transactionHash: data.transactionHash,
+        amount: data.amount,
+        tokenSymbol: 'USDC',
+        usdAmount: data.amount, // For USDC, amount is the same
+        fromAddress: data.fromAddress,
+        network: data.network,
+        explorerUrl,
+        memo: memo || undefined,
+        isCirclePayment: false, // Flag to differentiate messaging
+      });
+      setShowReceivedModal(true);
     }
       } catch (error) {
         console.error('WebSocket message error:', error);
@@ -505,12 +538,12 @@ useEffect(() => {
           </View>
 
           {/* Debug Button - Only in Additional Settings */}
-          {/* <TouchableOpacity 
+          <TouchableOpacity 
             style={styles.debugButton} 
             onPress={deleteBankDetails}
           >
             <Text style={styles.debugText}>DEBUG: Delete Bank Details</Text>
-          </TouchableOpacity> */}
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -564,6 +597,99 @@ useEffect(() => {
       onClose={() => setShowBankModal(false)}
       onSave={handleBankSave}
     />
+
+    {/* Payment Received Modal */}
+    <Modal
+      visible={showReceivedModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => {
+        setShowReceivedModal(false);
+        setPaymentReceived(false);
+      }}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.receivedModal}>
+          {/* Received Icon */}
+          <View style={styles.receivedIcon}>
+            <Image source={require('../assets/images/receive.png')} style={styles.receiveImage} />
+          </View>
+          
+          {/* Title */}
+          <Text style={styles.receivedTitle}>PAYMENT RECEIVED</Text>
+          
+          {/* Payment Details */}
+          <View style={styles.receivedDetails}>
+            <Text style={styles.receivedAmount}>
+              + {receivedData?.amount} {receivedData?.tokenSymbol}
+            </Text>
+            <Text style={styles.receivedValue}>
+              ${receivedData?.usdAmount} USD
+            </Text>
+            
+            <Text style={styles.fromText}>
+              From: {receivedData?.fromAddress?.slice(0, 6)}...{receivedData?.fromAddress?.slice(-4)}
+            </Text>
+            
+            <View style={styles.singleNetworkRoute}>
+              <Image source={getNetworkIcon(receivedData?.network || '')} style={styles.routeNetworkIcon} />
+              <Text style={styles.routeText}>{receivedData?.network} Network</Text>
+            </View>
+            
+            <Text style={styles.confirmedText}>
+              {receivedData?.isCirclePayment ? 
+                '💰 Will be converted to USD in your bank account' : 
+                '✅ Confirmed'
+              }
+            </Text>
+            
+            {/* Memo if present */}
+            {receivedData?.memo && (
+              <View style={styles.memoContainer}>
+                <Text style={styles.memoLabel}>Message</Text>
+                <Text style={styles.memoText}>{receivedData.memo}</Text>
+              </View>
+            )}
+            
+            {/* Transaction Hash */}
+            <View style={styles.hashContainer}>
+              <Text style={styles.hashLabel}>Transaction Hash</Text>
+              <Text style={styles.hashValue}>
+                {receivedData?.transactionHash.slice(0, 8)}...{receivedData?.transactionHash.slice(-8)}
+              </Text>
+            </View>
+          </View>
+          
+          {/* Buttons */}
+          <View style={styles.receivedButtons}>
+            <TouchableOpacity 
+              style={styles.receivedExplorerButton}
+              onPress={() => receivedData?.explorerUrl && Linking.openURL(receivedData.explorerUrl)}
+            >
+              <Text style={styles.receivedExplorerButtonText}>View on Explorer</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.receivedContinueButton}
+              onPress={() => {
+                setShowReceivedModal(false);
+                setPaymentReceived(false);
+                if (receivedData?.isCirclePayment) {
+                  // For Circle payments, just close modal
+                } else {
+                  // For USDC payments, navigate to TX History
+                  router.push('/(tabs)/TX History');
+                }
+              }}
+            >
+              <Text style={styles.receivedContinueButtonText}>
+                {receivedData?.isCirclePayment ? 'GREAT!' : 'VIEW TRANSACTIONS'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   </ScrollView>
 );
 };
@@ -905,5 +1031,170 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receivedModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '90%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  receivedIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#28A745',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  receiveImage: {
+    width: 50,
+    height: 50,
+    resizeMode: 'contain',
+  },
+  receivedTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 20,
+    letterSpacing: 1,
+  },
+  receivedDetails: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  receivedAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#28A745',
+    marginBottom: 5,
+  },
+  receivedValue: {
+    fontSize: 18,
+    color: '#28A745',
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  fromText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  singleNetworkRoute: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  routeNetworkIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  routeText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  confirmedText: {
+    fontSize: 14,
+    color: '#28A745',
+    marginBottom: 20,
+    fontWeight: '600',
+  },
+  memoContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    width: '100%',
+  },
+  memoLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  memoText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  hashContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  hashLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  hashValue: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: '#333',
+    fontWeight: '500',
+  },
+  receivedButtons: {
+    width: '100%',
+  },
+  receivedExplorerButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginBottom: 12,
+    shadowColor: '#6c757d',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  receivedExplorerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  receivedContinueButton: {
+    backgroundColor: '#28A745',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#28A745',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  receivedContinueButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
 });

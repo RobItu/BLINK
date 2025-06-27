@@ -65,9 +65,9 @@ const BLINK_CONTRACT_ABI = [
 // BLINK Contract Configuration
 const BLINK_CONTRACT_ADDRESSES: Record<string, string> = {
 //   'Avalanche Fuji': '0x02379E7bfD2DAe5162Ef5f18eA750E6acc1cff61',
-'Avalanche Fuji': '0x963D0b5cF0E3E0D26A41461F74E2082066406c1D',
-  'Sepolia': '0x6A3D8ece4E2adcb09f4C5A644fA6FD515f2F445B',
-  'Base Sepolia': '0xDb8ABe917773D4486154E5b4FCd7Ddb8EFdbCBb2',
+'Avalanche Fuji': '0x03397e5c20d0D9C99E6622bCa9945e680b0C5dD6',
+  'Sepolia': '0xA0Df20Ce1B5f84eeDBD83FF29276e9445D44bb1B',
+  'Base Sepolia': '0xFD1A6ce265fB857993E9F24657A229f6c9B10833',
 };
 
 const CHAIN_SELECTORS: Record<string, string> = {
@@ -120,25 +120,29 @@ export class BlinkPaymentService {
     return !!(sourceContract && destinationSelector && sourceNetwork !== destinationNetwork);
   }
 
+   static isSwapNeeded(inputToken: string, outputToken: string, sourceNetwork: string, destinationNetwork: string): boolean {
+    return sourceNetwork === destinationNetwork && inputToken !== outputToken;
+  }
+
   static async executePayment(params: PaymentParams): Promise<void> {
     const {
-      client,
       sourceNetwork,
       destinationNetwork,
-      selectedChain,
-      userAddress,
-      sellerAddress,
       tokenBalance,
-      requiredAmount,
-      sendTransaction,
+      receivedTokenSymbol,
     } = params;
 
-    if (this.isCrossChainAvailable(sourceNetwork, destinationNetwork)) {
+    const isCrossChain = this.isCrossChainAvailable(sourceNetwork, destinationNetwork);
+    const needsSwap = this.isSwapNeeded(tokenBalance.symbol, receivedTokenSymbol, sourceNetwork, destinationNetwork);
+    
+    // Use BLINK contract if it's cross-chain OR if we need to swap tokens
+    if (isCrossChain || needsSwap) {
       await this.executeBLINKPayment(params);
     } else {
       await this.executeDirectPayment(params);
     }
   }
+  
   private static parseTokenAmount(amount: string, tokenSymbol: string, network: string): bigint {
   // Get token decimals based on network and symbol
   const decimals = this.getTokenDecimals(network, tokenSymbol);

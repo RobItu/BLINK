@@ -505,12 +505,12 @@ useEffect(() => {
           </View>
 
           {/* Debug Button - Only in Additional Settings */}
-          <TouchableOpacity 
+          {/* <TouchableOpacity 
             style={styles.debugButton} 
             onPress={deleteBankDetails}
           >
             <Text style={styles.debugText}>DEBUG: Delete Bank Details</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       )}
     </View>

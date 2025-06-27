@@ -47,7 +47,8 @@ wss.on('connection', (ws, req) => {
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
-        console.log(`🏓 Ping sent to ${merchantId}`);
+        // console.log(`🏓 Ping sent to ${merchantId}`);
+        console.log(``);
       } else {
         clearInterval(pingInterval);
       }
@@ -55,7 +56,8 @@ wss.on('connection', (ws, req) => {
     
     // Handle pong responses
     ws.on('pong', () => {
-      console.log(`🏓 Pong received from ${merchantId}`);
+      // console.log(`🏓 Pong received from ${merchantId}`);
+      console.log(` `);
     });
     
     ws.on('close', () => {
@@ -73,7 +75,7 @@ wss.on('connection', (ws, req) => {
 });
 
 setInterval(() => {
-  console.log('🧹 Cleaning up dead WebSocket connections...');
+  console.log('Monitoring...');
   
   for (const [merchantId, ws] of merchantConnections.entries()) {
     if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
@@ -131,6 +133,7 @@ async function notifyMerchantUSDC(merchantId, notificationData) {
     console.log(`WebSocket state:`, ws ? ws.readyState : 'No WebSocket found');
   }
 }
+
 async function notifyMerchant(merchantId, notificationData) {
   console.log(`📱 Notifying merchant ${merchantId}:`, notificationData);
   

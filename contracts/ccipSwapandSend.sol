@@ -14,11 +14,6 @@ interface AggregatorV3Interface {
         returns (uint80 roundId, int256 price, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
-/**
-*@dev Interface for uniswap router contract. Testnet liquidity is usually really bad for TOKEN/USDC on testnet, so slippage is heavy.
-*NOTE: Should not be a problem in mainnet
-*
-**/
 interface ISwapRouter {
     struct ExactInputSingleParams {
         address tokenIn;
@@ -38,58 +33,52 @@ contract BLINKPayment is CCIPReceiver {
 
     error NotEnoughBalance(uint256 current, uint256 required);
     error InvalidAmount();
+    error SwapFailed();
 
     address public owner;
     IRouterClient private immutable ccipRouter;
     IERC20 private immutable linkToken;
     IERC20 private immutable usdcToken;
-    ISwapRouter public immutable dexRouter;
+    ISwapRouter public immutable swapRouter;
+    AggregatorV3Interface private immutable priceFeed;
     
     // Config
     address public immutable USDC_ADDRESS;
-    address public immutable NATIVE_WRAPPER; // WETH/WAVAX/etc
-    address public immutable ETH_USD_FEED;
+    address public immutable NATIVE_WRAPPER;
     
-    // Mockswap toggle - set to true to force mock swaps
-    bool public forceMockSwap = true; 
-    
-    /**
- * @dev Payment parameters for cross-chain token transfers. This is what the BLINK app sends! 
- * @param tokenIn Address of input token (address(0) for native token)
- * @param amountIn Amount of input token to send (in token's native decimals)
- * @param tokenOut Address of desired output token on destination chain
- * @param receiver Address to receive tokens on destination chain
- * @param destinationChain CCIP chain selector for target blockchain
- * @param minAmountOut Minimum acceptable output amount (slippage protection)
- */
-    struct PaymentParams {
+    // Swap settings
+    bool public useRealSwaps = false;
+    uint24 public constant POOL_FEE = 3000; // 0.3% - most liquid fee tier
+
+     struct PaymentParams {
         address tokenIn;
         uint256 amountIn;
         address tokenOut;
         address receiver;
+        address receiverContract;
         uint64 destinationChain;
         uint256 minAmountOut;
     }
 
     event PaymentProcessed(bytes32 messageId, address sender, uint64 destinationChain);
-    event SwapExecuted(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut, string swapType);
+    event SwapExecuted(address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOut, string swapType, uint24 fee);
 
     constructor(
         address _ccipRouter,
         address _linkToken,
         address _usdcToken,
-        address _dexRouter,
+        address _swapRouter,
         address _nativeWrapper,
-        address _nativeUsdPriceFeed
+        address _priceFeed
     ) CCIPReceiver(_ccipRouter) {
         owner = msg.sender;
         ccipRouter = IRouterClient(_ccipRouter);
         linkToken = IERC20(_linkToken);
         usdcToken = IERC20(_usdcToken);
-        dexRouter = ISwapRouter(_dexRouter);
+        swapRouter = ISwapRouter(_swapRouter);
+        priceFeed = AggregatorV3Interface(_priceFeed);
         USDC_ADDRESS = _usdcToken;
         NATIVE_WRAPPER = _nativeWrapper;
-        ETH_USD_FEED = _nativeUsdPriceFeed;
     }
 
     modifier onlyOwner() {
@@ -98,11 +87,9 @@ contract BLINKPayment is CCIPReceiver {
     }
 
     /**
-    *@dev Main function BLINK app will call. Responsible for swapping tokens to USDC and sending it to CCIP to destination determined by user
-    *@param params - struct with needed information of tokens transferred and data to build CCIP message
-    *Note: Native-currency/USDC pair has terrible liquidity in testnets, so I created a mock swap using CL Feeds, however liquidity should not 
-    *NOTE: be a problem in mainnet. Correct route address must be used in constructor when deploying contract. Dex for sepolia/ethereum should be Uniswap
-    **/
+     * @notice Main payment processing function
+     * @param params Payment parameters including tokens, amounts, and destination
+     */
     function processPayment(PaymentParams calldata params) external payable returns (bytes32 messageId) {
         if (params.amountIn == 0) revert InvalidAmount();
         
@@ -114,69 +101,60 @@ contract BLINKPayment is CCIPReceiver {
         }
 
         // Convert to USDC if needed
-        uint256 usdcAmount;
-        if (params.tokenIn == USDC_ADDRESS) {
-            // No conversion needed
-            usdcAmount = params.amountIn;
-        } else if (forceMockSwap) {
-            // Force mock swap path (bypasses dexRoute swap logic)
-            usdcAmount = _performMockSwap(params.tokenIn, params.amountIn);
-            emit SwapExecuted(params.tokenIn, USDC_ADDRESS, params.amountIn, usdcAmount, "MockSwap");
-        } else {
-            // Swap using dexRoute like Uniswap or other
-            usdcAmount = _convertToUSDC(params.tokenIn, params.amountIn);
-        }
+        uint256 usdcAmount = _convertToUSDC(params.tokenIn, params.amountIn);
 
         // Send via CCIP
-        messageId = _sendCCIP(params.destinationChain, usdcAmount, params.tokenOut, params.receiver, params.minAmountOut);
+        messageId = _sendCCIP(params.destinationChain, usdcAmount, params.tokenOut, params.receiver, params.minAmountOut, params.receiverContract);
         
         emit PaymentProcessed(messageId, msg.sender, params.destinationChain);
     }
 
+    /**
+     * @notice Convert any token to USDC using real swaps or price feeds
+     */
     function _convertToUSDC(address tokenIn, uint256 amountIn) internal returns (uint256 usdcAmount) {
-        // Check if we should force mock swap (for testing)
-        if (forceMockSwap) {
-            usdcAmount = _performMockSwap(tokenIn, amountIn);
-            emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "MockSwap");
-            return usdcAmount;
-        } else {
-            // Try real swap first, fallback to mock swap
-        try this._attemptRealSwap(tokenIn, amountIn) returns (uint256 swapResult) {
-            usdcAmount = swapResult;
-            emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "RealSwap");
-        } catch {
-            usdcAmount = _performMockSwap(tokenIn, amountIn);
-            emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "MockSwap");
+        if (tokenIn == USDC_ADDRESS) {
+            return amountIn; // No conversion needed
         }
+
+        if (useRealSwaps) {
+            // Try real swap with multiple fee tiers
+            usdcAmount = _attemptRealSwapToUSDC(tokenIn, amountIn);
+            if (usdcAmount > 0) {
+                return usdcAmount;
+            }
         }
-    }
-    
-    function setForceMockSwap(bool _force) external onlyOwner {
-        forceMockSwap = _force;
+
+        // Fallback to price feed conversion
+        return _mockSwapToUSDC(tokenIn, amountIn);
     }
 
-   /**
-    * @dev Attempts to swap tokens to USDC using the configured DEX router
-    * @param tokenIn Input token address (address(0) for native tokens)
-    * @param amountIn Amount of input tokens to swap
-    * @return Amount of USDC received from the swap
-    * 
-    * @notice This function can only be called internally via try/catch pattern
-    * @notice Uses 0.3% fee tier and 5-minute deadline for swaps
-    * @notice For native tokens, automatically wraps to WETH/WAVAX format
-    * @notice If no liquidity in pool will throw a gas error
-    */
-    function _attemptRealSwap(address tokenIn, uint256 amountIn) external returns (uint256) {
-        require(msg.sender == address(this), "Only self-call allowed");
+    /**
+     * @notice Attempt real swap with 0.3% fee tier
+     */
+    function _attemptRealSwapToUSDC(address tokenIn, uint256 amountIn) internal returns (uint256) {
+        try this._executeSwapToUSDC(tokenIn, amountIn, 3000) returns (uint256 result) {
+            emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, result, "RealSwap", 3000);
+            return result;
+        } catch {
+            return 0; // Swap failed
+        }
+    }
+
+    /**
+     * @notice Execute single swap attempt (external for try/catch)
+     */
+    function _executeSwapToUSDC(address tokenIn, uint256 amountIn, uint24 fee) external returns (uint256) {
+        require(msg.sender == address(this), "Only self call");
         
-        uint256 balanceBefore = IERC20(USDC_ADDRESS).balanceOf(address(this));
+        uint256 balanceBefore = usdcToken.balanceOf(address(this));
         
         if (tokenIn == address(0)) {
-            // Native token → USDC (works for ETH, AVAX, etc.)
+            // Native token swap
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-                tokenIn: NATIVE_WRAPPER,    
+                tokenIn: NATIVE_WRAPPER,
                 tokenOut: USDC_ADDRESS,
-                fee: 3000,                  
+                fee: fee,
                 recipient: address(this),
                 deadline: block.timestamp + 300,
                 amountIn: amountIn,
@@ -184,16 +162,15 @@ contract BLINKPayment is CCIPReceiver {
                 sqrtPriceLimitX96: 0
             });
             
-            dexRouter.exactInputSingle{value: amountIn}(params);
-            
+            swapRouter.exactInputSingle{value: amountIn}(params);
         } else {
-            // ERC20 → USDC
-            IERC20(tokenIn).safeApprove(address(dexRouter), amountIn);
+            // ERC20 token swap
+            IERC20(tokenIn).safeApprove(address(swapRouter), amountIn);
             
             ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: USDC_ADDRESS,
-                fee: 3000,
+                fee: fee,
                 recipient: address(this),
                 deadline: block.timestamp + 300,
                 amountIn: amountIn,
@@ -201,59 +178,164 @@ contract BLINKPayment is CCIPReceiver {
                 sqrtPriceLimitX96: 0
             });
             
-            dexRouter.exactInputSingle(params);
+            swapRouter.exactInputSingle(params);
         }
         
-        uint256 balanceAfter = IERC20(USDC_ADDRESS).balanceOf(address(this));
+        uint256 balanceAfter = usdcToken.balanceOf(address(this));
         return balanceAfter - balanceBefore;
     }
 
-       /**
-    * @dev Uses CL feeds to mock a swap. Contract must have USDC! 
-    */
+    /**
+     * @notice Convert USDC to target token on destination chain
+     */
+    function _convertFromUSDC(address tokenOut, uint256 usdcAmount, uint256 minOut) internal returns (uint256) {
+        if (tokenOut == USDC_ADDRESS) {
+            return usdcAmount; // No conversion needed
+        }
 
-    function _performMockSwap(address tokenIn, uint256 amountIn) internal returns (uint256 usdcAmount) {
+        if (useRealSwaps) {
+            // Try real swap with multiple fee tiers
+            uint256 result = _attemptRealSwapFromUSDC(tokenOut, usdcAmount, minOut);
+            if (result > 0) {
+                return result;
+            }
+        }
+
+        // Fallback to price feed conversion
+        return _mockSwapFromUSDC(tokenOut, usdcAmount);
+    }
+
+    /**
+     * @notice Attempt real swap from USDC with 0.3% fee tier
+     */
+    function _attemptRealSwapFromUSDC(address tokenOut, uint256 usdcAmount, uint256 minOut) internal returns (uint256) {
+        try this._executeSwapFromUSDC(tokenOut, usdcAmount, minOut, 3000) returns (uint256 result) {
+            emit SwapExecuted(USDC_ADDRESS, tokenOut, usdcAmount, result, "RealSwap", 3000);
+            return result;
+        } catch {
+            return 0; // Swap failed
+        }
+    }
+
+    /**
+     * @notice Execute single swap from USDC (external for try/catch)
+     */
+    function _executeSwapFromUSDC(address tokenOut, uint256 usdcAmount, uint256 minOut, uint24 fee) external returns (uint256) {
+        require(msg.sender == address(this), "Only self call");
+        
+        usdcToken.safeApprove(address(swapRouter), usdcAmount);
+        
+        if (tokenOut == address(0)) {
+            // Swap to native token
+            uint256 balanceBefore = IERC20(NATIVE_WRAPPER).balanceOf(address(this));
+            
+            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+                tokenIn: USDC_ADDRESS,
+                tokenOut: NATIVE_WRAPPER,
+                fee: fee,
+                recipient: address(this),
+                deadline: block.timestamp + 300,
+                amountIn: usdcAmount,
+                amountOutMinimum: minOut,
+                sqrtPriceLimitX96: 0
+            });
+            
+            swapRouter.exactInputSingle(params);
+            
+            uint256 balanceAfter = IERC20(NATIVE_WRAPPER).balanceOf(address(this));
+            return balanceAfter - balanceBefore;
+        } else {
+            // Swap to ERC20 token
+            uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+            
+            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+                tokenIn: USDC_ADDRESS,
+                tokenOut: tokenOut,
+                fee: fee,
+                recipient: address(this),
+                deadline: block.timestamp + 300,
+                amountIn: usdcAmount,
+                amountOutMinimum: minOut,
+                sqrtPriceLimitX96: 0
+            });
+            
+            swapRouter.exactInputSingle(params);
+            
+            uint256 balanceAfter = IERC20(tokenOut).balanceOf(address(this));
+            return balanceAfter - balanceBefore;
+        }
+    }
+
+    /**
+     * @notice Mock swap using Chainlink price feeds
+     */
+    function _mockSwapToUSDC(address tokenIn, uint256 amountIn) internal returns (uint256 usdcAmount) {
         if (tokenIn == address(0) || tokenIn == NATIVE_WRAPPER) {
-            // Use price feed for native token conversion
             usdcAmount = _getNativeToUSDCAmount(amountIn);
         } else {
-            // For other tokens, use 1:1 ratio as fallback (can be enhanced)
-            usdcAmount = amountIn; // Assumes token has similar decimals to USDC
+            usdcAmount = _getUSDCToNativeAmount(amountIn); // 1:1 fallback for other tokens
         }
         
-        // Ensure contract has enough USDC for mock swap
-        uint256 contractUSDCBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        require(contractUSDCBalance >= usdcAmount, "Insufficient USDC in contract");
+        uint256 contractBalance = usdcToken.balanceOf(address(this));
+        require(contractBalance >= usdcAmount, "Insufficient USDC for mock swap");
+        
+        emit SwapExecuted(tokenIn, USDC_ADDRESS, amountIn, usdcAmount, "MockSwap", 0);
     }
 
+    /**
+     * @notice Mock swap from USDC using Chainlink price feeds
+     */
+    function _mockSwapFromUSDC(address tokenOut, uint256 usdcAmount) internal returns (uint256 outputAmount) {
+        if (tokenOut == address(0) || tokenOut == NATIVE_WRAPPER) {
+            outputAmount = _getUSDCToNativeAmount(usdcAmount);
+            require(address(this).balance >= outputAmount, "Insufficient native token for mock swap");
+        } else {
+            outputAmount = usdcAmount; // 1:1 fallback
+            require(IERC20(tokenOut).balanceOf(address(this)) >= outputAmount, "Insufficient token for mock swap");
+        }
+        
+        emit SwapExecuted(USDC_ADDRESS, tokenOut, usdcAmount, outputAmount, "MockSwap", 0);
+    }
+
+    /**
+     * @notice Get native token amount from USDC using Chainlink price feed
+     */
     function _getNativeToUSDCAmount(uint256 nativeAmount) internal view returns (uint256) {
-        if (ETH_USD_FEED == address(0)) {
-            // No price feed configured, use fallback rate (e.g., $2000 per token)
-            return (nativeAmount * 2000) / 1e12; 
-        }
-
-        try AggregatorV3Interface(ETH_USD_FEED).latestRoundData() returns (
-            uint80, int256 price, uint256, uint256 updatedAt, uint80
-        ) {
-            if (price <= 0 || updatedAt == 0) {
-                return (nativeAmount * 2000) / 1e12;
+        try priceFeed.latestRoundData() returns (uint80, int256 price, uint256, uint256 updatedAt, uint80) {
+            if (price > 0 && updatedAt > 0) {
+                return (nativeAmount * uint256(price)) / 1e20;
             }
-            
-            return (nativeAmount * uint256(price)) / 1e20; 
-        } catch {
-            // Fallback rate
-            return (nativeAmount * 2000) / 1e12;
-        }
+        } catch {}
+        
+        // Fallback rate: $3300 per ETH
+        return (nativeAmount * 3300) / 1e12;
     }
 
-    function _sendCCIP(uint64 destinationChain, uint256 usdcAmount, address tokenOut, address receiver, uint256 minOut) 
+    /**
+     * @notice Get USDC amount for native token using Chainlink price feed
+     */
+    function _getUSDCToNativeAmount(uint256 usdcAmount) internal view returns (uint256) {
+        try priceFeed.latestRoundData() returns (uint80, int256 price, uint256, uint256 updatedAt, uint80) {
+            if (price > 0 && updatedAt > 0) {
+                return (usdcAmount * 1e20) / uint256(price);
+            }
+        } catch {}
+        
+        // Fallback rate: $3300 per ETH
+        return (usdcAmount * 1e18) / 3300e6;
+    }
+
+    /**
+     * @notice Send USDC cross-chain via CCIP
+     */
+    function _sendCCIP(uint64 destinationChain, uint256 usdcAmount, address tokenOut, address receiver, uint256 minOut, address receiverContract) 
         internal returns (bytes32) {
         
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: USDC_ADDRESS, amount: usdcAmount});
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
-            receiver: abi.encode(receiver),
+            receiver: abi.encode(receiverContract),
             data: abi.encode(tokenOut, receiver, minOut),
             tokenAmounts: tokenAmounts,
             extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 500_000})),
@@ -261,8 +343,9 @@ contract BLINKPayment is CCIPReceiver {
         });
 
         uint256 fee = ccipRouter.getFee(destinationChain, message);
-        if (fee > linkToken.balanceOf(address(this))) 
+        if (fee > linkToken.balanceOf(address(this))) {
             revert NotEnoughBalance(linkToken.balanceOf(address(this)), fee);
+        }
         
         linkToken.approve(address(ccipRouter), fee);
         usdcToken.approve(address(ccipRouter), usdcAmount);
@@ -270,6 +353,9 @@ contract BLINKPayment is CCIPReceiver {
         return ccipRouter.ccipSend(destinationChain, message);
     }
 
+    /**
+     * @notice Handle incoming CCIP messages
+     */
     function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
         (address tokenOut, address receiver, uint256 minOut) = abi.decode(message.data, (address, address, uint256));
         uint256 usdcAmount = message.destTokenAmounts[0].amount;
@@ -277,56 +363,48 @@ contract BLINKPayment is CCIPReceiver {
         if (tokenOut == USDC_ADDRESS) {
             usdcToken.safeTransfer(receiver, usdcAmount);
         } else {
-            usdcToken.safeTransfer(receiver, usdcAmount);
+            uint256 outputAmount = _convertFromUSDC(tokenOut, usdcAmount, minOut);
+            
+            if (tokenOut == address(0)) {
+                payable(receiver).transfer(outputAmount);
+            } else {
+                IERC20(tokenOut).safeTransfer(receiver, outputAmount);
+            }
         }
     }
 
     // Owner functions
-    function fundMockSwap(uint256 usdcAmount) external onlyOwner {
-        IERC20(USDC_ADDRESS).transferFrom(msg.sender, address(this), usdcAmount);
+    function setUseRealSwaps(bool _useReal) external onlyOwner {
+        useRealSwaps = _useReal;
     }
 
-     function withdrawAll() external onlyOwner {
+    function fundContract() external payable onlyOwner {}
+
+    function fundUSDC(uint256 amount) external onlyOwner {
+        usdcToken.safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    function withdrawAll() external onlyOwner {
         // Withdraw LINK
         uint256 linkBalance = linkToken.balanceOf(address(this));
         if (linkBalance > 0) {
             linkToken.transfer(owner, linkBalance);
         }
         
-        // Withdraw USDC  
-        uint256 usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
+        // Withdraw USDC
+        uint256 usdcBalance = usdcToken.balanceOf(address(this));
         if (usdcBalance > 0) {
-            IERC20(USDC_ADDRESS).transfer(owner, usdcBalance);
+            usdcToken.transfer(owner, usdcBalance);
         }
         
-        // Withdraw native tokens (ETH/AVAX)
+        // Withdraw native tokens
         uint256 nativeBalance = address(this).balance;
         if (nativeBalance > 0) {
             payable(owner).transfer(nativeBalance);
         }
     }
 
-    //=================================== DEBUG FUNCTIONS ================================================= //
-
-    function debugMockSwap(address tokenIn, uint256 amountIn) external view returns (
-        uint256 calculatedUSDC,
-        uint256 contractUSDCBalance,
-        uint256 ethPrice,
-        bool hasEnoughUSDC
-    ) {
-        if (tokenIn == address(0) || tokenIn == NATIVE_WRAPPER) {
-            calculatedUSDC = _getNativeToUSDCAmount(amountIn);
-            ethPrice = _getNativeToUSDCAmount(1e18); // Price for 1 ETH
-        } else {
-            calculatedUSDC = amountIn;
-            ethPrice = 0;
-        }
-        
-        contractUSDCBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        hasEnoughUSDC = contractUSDCBalance >= calculatedUSDC;
-    }
-
-
+    // View functions
     function getEstimatedFee(uint64 destinationChain, uint256 usdcAmount) external view returns (uint256) {
         Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({token: USDC_ADDRESS, amount: usdcAmount});
@@ -342,18 +420,13 @@ contract BLINKPayment is CCIPReceiver {
         return ccipRouter.getFee(destinationChain, message);
     }
 
-    // Debug functions to check balances and calculations
-    function debugBalances() external view returns (uint256 linkBalance, uint256 usdcBalance, uint256 ethBalance) {
-        linkBalance = linkToken.balanceOf(address(this));
-        usdcBalance = IERC20(USDC_ADDRESS).balanceOf(address(this));
-        ethBalance = address(this).balance;
+    function getCurrentETHPrice() external view returns (uint256) {
+        return _getNativeToUSDCAmount(1e18);
     }
-    
-    function debugConvertETHToUSDC(uint256 ethAmount) external view returns (uint256 usdcAmount, uint256 ethPrice) {
-        ethPrice = _getNativeToUSDCAmount(1e18); // Price for 1 ETH
-        usdcAmount = _getNativeToUSDCAmount(ethAmount);
+
+    function previewUSDCToETH(uint256 usdcAmount) external view returns (uint256) {
+        return _getUSDCToNativeAmount(usdcAmount);
     }
-    
 
     receive() external payable {}
 }

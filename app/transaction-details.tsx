@@ -229,7 +229,7 @@ export default function TransactionDetailsScreen() {
     return wholePart;
   };
 
- const handleConfirmPayment = async () => {
+const handleConfirmPayment = async () => {
   if (!selectedNetwork || !selectedToken) {
     Alert.alert('Error', 'Please select a network and token for payment');
     return;
@@ -239,9 +239,16 @@ export default function TransactionDetailsScreen() {
   const requiredAmount = calculateRequiredTokenAmount(selectedTokenBalance!);
   const remainingBalance = getRemainingBalance(selectedTokenBalance!);
   
-  // Determine if it's cross-chain
+  // Determine payment type
   const isCrossChain = BlinkPaymentService.isCrossChainAvailable(selectedNetwork, transactionData.network as string);
-  const paymentMethod = isCrossChain ? 'Cross-Chain BLINK Payment' : 'Direct Transfer';
+  const needsSwap = BlinkPaymentService.isSwapNeeded(selectedToken, 'USDC', selectedNetwork, transactionData.network as string);
+  
+  let paymentMethod = 'Direct Transfer';
+  if (isCrossChain) {
+    paymentMethod = 'Cross-Chain BLINK Payment';
+  } else if (needsSwap) {
+    paymentMethod = 'BLINK Swap Payment';
+  }
   
   // Single comprehensive confirmation
   Alert.alert(
@@ -254,6 +261,7 @@ ${isCrossChain ? `${selectedNetwork} → ${transactionData.network}` : `Network:
 - Item: ${transactionData.for}
 - Amount: $${transactionData.amount} USD
 - Sending: ${requiredAmount} ${selectedToken}
+${needsSwap && !isCrossChain ? `- Receiving: USDC` : ''}
 - To: ${transactionData.sellerWalletAddress?.slice(0, 6)}...${transactionData.sellerWalletAddress?.slice(-4)}
 
 Your remaining ${selectedToken} balance: ${remainingBalance} ${selectedToken}
@@ -263,7 +271,7 @@ ${isCrossChain ? '⏱️ Delivery: 10-20 minutes' : '✅ Delivered immediately'}
 Proceed with payment?`,
     [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount, isCrossChain) }
+      { text: 'Send Payment', onPress: () => executePayment(selectedTokenBalance!, requiredAmount, isCrossChain, needsSwap) }
     ]
   );
 };
@@ -273,12 +281,12 @@ const handlePaymentSuccess = async (result: any, requiredAmount: string, isCross
   const ccipExplorerUrl = `https://ccip.chain.link/tx/${transactionHash}`;
 
     await transactionStorageService.addTransaction(account?.address!, {
-    id: result.transactionHash,
+    id: transactionHash,
     type: 'sent',
     amount: transactionData.amount,
     currency: transactionData.currency as 'USDC' | 'USD',
     itemName: transactionData.for,
-    memo: transactionData.memo ? `${transactionData.memo} • Paid with ${requiredAmount} ${selectedToken}` : `Paid with ${requiredAmount} ${selectedToken}`,
+    memo: transactionData.memo,
     network: selectedNetwork,
     transactionHash: result.transactionHash,
     fromAddress: account?.address!,
@@ -330,7 +338,7 @@ const handlePaymentError = (error: any) => {
   setSendingTransaction(false);
 };
 
-const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string, isCrossChain: boolean) => {
+const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string, isCrossChain: boolean, needsSwap: boolean) => {
   if (!account?.address || !selectedChainObject) return;
 
   setSendingTransaction(true);
@@ -341,12 +349,14 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
     console.log('tokenBalance.usdPrice:', tokenBalance.usdPrice);
     console.log('tokenBalance:', tokenBalance);
     console.log('requiredAmount being sent:', requiredAmount);
+    console.log('isCrossChain:', isCrossChain);
+    console.log('needsSwap:', needsSwap);
     
-    // Execute payment directly (no second confirmation)
+    // Execute payment with the correct receivedTokenSymbol
     await BlinkPaymentService.executePayment({
       client,
       sourceNetwork: selectedNetwork,
-      destinationNetwork: transactionData.network || '',
+      destinationNetwork: transactionData.network || selectedNetwork, // Use same network if not cross-chain
       selectedChain: selectedChainObject,
       userAddress: account.address,
       sellerAddress: transactionData.sellerWalletAddress as string,
@@ -356,7 +366,7 @@ const executePayment = async (tokenBalance: TokenBalance, requiredAmount: string
         balance: tokenBalance.balance,
       },
       requiredAmount,
-      receivedTokenSymbol: 'USDC',
+      receivedTokenSymbol: 'USDC', // Always convert to USDC
       sendTransaction: (tx: any, callbacks: any) => {
         sendTransaction(tx, {
           onSuccess: (result: any) => {

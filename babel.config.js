@@ -7,3 +7,5 @@ module.exports = function (api) {
 		],
 	};
 };
+
+// This configuration file is for a React Native project using Expo and Babel.

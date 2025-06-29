@@ -5,6 +5,7 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const { spawn } = require('child_process');
 
 const app = express();
 
@@ -47,8 +48,7 @@ wss.on('connection', (ws, req) => {
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
-        // console.log(`🏓 Ping sent to ${merchantId}`);
-        console.log(``);
+        console.log(`🏓 Ping sent to ${merchantId}`);
       } else {
         clearInterval(pingInterval);
       }
@@ -56,8 +56,7 @@ wss.on('connection', (ws, req) => {
     
     // Handle pong responses
     ws.on('pong', () => {
-      // console.log(`🏓 Pong received from ${merchantId}`);
-      console.log(` `);
+      console.log(`🏓 Pong received from ${merchantId}`);
     });
     
     ws.on('close', () => {
@@ -75,7 +74,7 @@ wss.on('connection', (ws, req) => {
 });
 
 setInterval(() => {
-  console.log('Monitoring...');
+  console.log('🧹 Cleaning up dead WebSocket connections...');
   
   for (const [merchantId, ws] of merchantConnections.entries()) {
     if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
@@ -133,7 +132,6 @@ async function notifyMerchantUSDC(merchantId, notificationData) {
     console.log(`WebSocket state:`, ws ? ws.readyState : 'No WebSocket found');
   }
 }
-
 async function notifyMerchant(merchantId, notificationData) {
   console.log(`📱 Notifying merchant ${merchantId}:`, notificationData);
   
@@ -785,7 +783,98 @@ async function triggerAutomaticPayout(merchant, amount) {
     console.error('❌ Automatic payout failed:', error);
   }
 }
+// ========================================
+// SOLANA - SEPOLIA 
+//===========================================
 
+
+app.post('/api/solana/transfer', async (req, res) => {
+ try {
+   const { tokenAddress, amount, recipientAddress, sourceAddress } = req.body;
+   
+   console.log('🔄 CCIP Transfer Request:', {
+     tokenAddress,
+     amount,
+     recipientAddress,
+     sourceAddress
+   });
+
+   const { spawn } = require('child_process');
+   
+   const process = spawn('yarn', [
+     'svm:token-transfer',
+     '--token-amount', amount
+   ], {
+     cwd: "/home/robitu/solana/BLINK/backend", // Adjust path if your scripts are in a different directory
+     stdio: ['pipe', 'pipe', 'pipe']
+   });
+
+   let stdout = '';
+   let stderr = '';
+
+   process.stdout.on('data', (data) => {
+     stdout += data.toString();
+     console.log('STDOUT:', data.toString());
+   });
+
+   process.stderr.on('data', (data) => {
+     stderr += data.toString();
+     console.log('STDERR:', data.toString());
+   });
+
+   process.on('close', (code) => {
+     if (code === 0) {
+       // Extract CCIP Explorer and Solana Explorer links
+       const ccipExplorerMatch = stdout.match(/CCIP Explorer:\s*(https:\/\/ccip\.chain\.link\/msg\/[^\s]+)/);
+       const solanaExplorerMatch = stdout.match(/(https:\/\/explorer\.solana\.com\/tx\/[a-zA-Z0-9]+\?cluster=devnet)/);
+       
+       // Extract transaction hash for basic identification
+       const txHashMatch = stdout.match(/Transaction signature:\s*([a-zA-Z0-9]+)/);
+       const transactionHash = txHashMatch ? txHashMatch[1] : `ccip_tx_${Date.now()}`;
+       
+       const ccipExplorerUrl = ccipExplorerMatch ? ccipExplorerMatch[1] : null;
+       const solanaExplorerUrl = solanaExplorerMatch ? solanaExplorerMatch[1] : null;
+       
+       console.log('✅ CCIP Transfer completed:', {
+         transactionHash,
+         ccipExplorerUrl,
+         solanaExplorerUrl
+       });
+       
+       res.json({
+         success: true,
+         message: 'CCIP transfer completed successfully',
+         transactionHash: transactionHash,
+         ccipExplorerUrl: ccipExplorerUrl,
+         solanaExplorerUrl: solanaExplorerUrl
+       });
+     } else {
+       console.error('❌ CCIP Transfer failed with code:', code);
+       res.status(500).json({
+         success: false,
+         error: `Transfer failed with exit code ${code}`,
+         stderr: stderr,
+         stdout: stdout
+       });
+     }
+   });
+
+   process.on('error', (error) => {
+     console.error('❌ CCIP Process error:', error);
+     res.status(500).json({
+       success: false,
+       error: error.message
+     });
+   });
+
+ } catch (error) {
+   console.error('❌ CCIP API Error:', error);
+   res.status(500).json({
+     success: false,
+     error: error.message
+   });
+ }
+});
 // ==========================================
 // ERROR HANDLING
 // ==========================================

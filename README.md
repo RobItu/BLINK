@@ -1,5 +1,12 @@
 ![Banner](assets/images/title.png)
 
+CHAINLINK FILES: 
+
+CCIP: [https://github.com/RobItu/BLINK/blob/main/backend/ccip-scripts/evm/router/1_token-transfer.ts](https://github.com/RobItu/BLINK/blob/main/backend/ccip-scripts/evm/router/1_token-transfer.ts)
+
+CCIP + DATA FEEDS: [https://github.com/RobItu/BLINK/blob/main/contracts/ccipSwapandSend.sol](https://github.com/RobItu/BLINK/blob/main/contracts/ccipSwapandSend.sol)
+
+
 ## Table of Contents
 
 - [Transactions](https://github.com/RobItu/BLINK?tab=readme-ov-file#transactions)
@@ -150,6 +157,9 @@ npm run dev (starts server)
  ```
 
 These two terminals must be running at all times along with ```npx expo start --tunnel``` on a seperate terminal for full functionality. 
+
+## Solana
+Solana files are located in `/backend` folder.
 
 ## Troubleshooting
 - I have added multiple logs, so keep your eye out on your terminal. 

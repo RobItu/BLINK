@@ -1,5 +1,22 @@
 ![Banner](assets/images/title.png)
 
+## Table of Contents
+
+- [Transactions](https://github.com/RobItu/BLINK?tab=readme-ov-file#transactions)
+- [Wallets Used](https://github.com/RobItu/BLINK?tab=readme-ov-file#wallets-used)
+- [Smart Contracts (not all verified)](https://github.com/RobItu/BLINK?tab=readme-ov-file#smart-contracts-not-all-verified)
+- [Qt code USDC Swaps](https://github.com/RobItu/BLINK?tab=readme-ov-file#qt-code-usdc-swaps)
+- [Bank Transactions](https://github.com/RobItu/BLINK?tab=readme-ov-file#bank-transactions)
+- [REAL SWAPS](https://github.com/RobItu/BLINK?tab=readme-ov-file#real-swaps)
+- [Smart Send (Mock Swaps)](https://github.com/RobItu/BLINK?tab=readme-ov-file#smart-send-mock-swaps)
+- [Solana](https://github.com/RobItu/BLINK?tab=readme-ov-file#solana)
+- [Installation](https://github.com/RobItu/BLINK?tab=readme-ov-file#installation)
+- [Prerequisites](https://github.com/RobItu/BLINK?tab=readme-ov-file#prerequisites)
+- [Get Started (Frontend)](https://github.com/RobItu/BLINK?tab=readme-ov-file#get-started-frontend)
+- [Get Started (Backend)](https://github.com/RobItu/BLINK?tab=readme-ov-file#get-started-backend)
+- [Troubleshooting](https://github.com/RobItu/BLINK?tab=readme-ov-file#troubleshooting)
+- [OpenSSL Error on Xcode 15](https://github.com/RobItu/BLINK?tab=readme-ov-file#openssl-error-on-xcode-15)
+
 
 # Transactions
 Transactions seen in the video listed in chronological order. 

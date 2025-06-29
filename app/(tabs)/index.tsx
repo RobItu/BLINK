@@ -17,10 +17,6 @@ import {
 	inAppWallet,
 } from "thirdweb/wallets/in-app";
 
-const customTheme = lightTheme({
- colors: {
-   modalBg: 'red'
- }});
 
 const thirdwebAuth = createAuth({
 	domain: "localhost:3000",
@@ -332,8 +328,8 @@ const CustomConnectUI = () => {
 	) : (
 		<>
 			<ConnectWithGoogle />
-			<ConnectWithMetaMask />
-			<ConnectWithPasskey />
+			{/* <ConnectWithMetaMask />
+			<ConnectWithPasskey /> */}
 		</>
 	);
 };
